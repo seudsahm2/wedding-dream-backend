@@ -1,18 +1,20 @@
 from pathlib import Path
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
+import environ  # type: ignore[import-not-found]
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+env = environ.Env(
+    DEBUG=(bool, False),
+)
+# Load .env if present at project root
+env.read_env(os.path.join(BASE_DIR, ".env"))
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'a-default-secret-key-if-not-set')
+SECRET_KEY = env.str('SECRET_KEY', default='insecure-default-change-me')  # type: ignore[arg-type]
 
 # Default: DEBUG false; overridden in dev.py
-DEBUG = False
+DEBUG = env.bool('DEBUG', default=False)  # type: ignore[arg-type]
 
-ALLOWED_HOSTS_str = os.getenv('ALLOWED_HOSTS', '')
-ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_str.split(',') if host.strip()] or ['127.0.0.1', 'localhost']
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost'])  # type: ignore[arg-type]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -71,10 +73,7 @@ WSGI_APPLICATION = "wedding_dream.wsgi.application"
 ASGI_APPLICATION = "wedding_dream.asgi.application"
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": env.db('DATABASE_URL', default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),  # type: ignore[arg-type]
 }
 
 STATIC_URL = "static/"
@@ -119,9 +118,8 @@ SIMPLE_JWT = {
 }
 
 # CORS defaults (tighten in prod.py, relax in dev.py)
-CORS_ALLOWED_ORIGINS_str = os.getenv('CORS_ALLOWED_ORIGINS', '')
-CORS_ALLOWED_ORIGINS = [o.strip() for o in CORS_ALLOWED_ORIGINS_str.split(',') if o.strip()]
-CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])  # type: ignore[arg-type]
+CORS_ALLOW_ALL_ORIGINS = env.bool('CORS_ALLOW_ALL_ORIGINS', default=False)  # type: ignore[arg-type]
 CORS_URLS_REGEX = r'^/api/.*$'
 
 # Channels layer: default to in-memory; prod.py can override with Redis
@@ -130,12 +128,23 @@ CHANNEL_LAYERS: dict = {
         "BACKEND": "channels.layers.InMemoryChannelLayer",
     }
 }
-REDIS_URL = os.getenv("REDIS_URL")
+REDIS_URL = env.str('REDIS_URL', default='')  # type: ignore[arg-type]
 if REDIS_URL:
     CHANNEL_LAYERS["default"] = {  # type: ignore[assignment]
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {"hosts": [REDIS_URL]},
     }
+
+# Email backend (optional: for prod)
+EMAIL_BACKEND = env.str('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')  # type: ignore[arg-type]
+EMAIL_HOST = env.str('EMAIL_HOST', default='')  # type: ignore[arg-type]
+EMAIL_PORT = env.int('EMAIL_PORT', default=587)  # type: ignore[arg-type]
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)  # type: ignore[arg-type]
+EMAIL_HOST_USER = env.str('EMAIL_HOST_USER', default='')  # type: ignore[arg-type]
+EMAIL_HOST_PASSWORD = env.str('EMAIL_HOST_PASSWORD', default='')  # type: ignore[arg-type]
+
+# Sentry DSN (optional)
+SENTRY_DSN = env.str('SENTRY_DSN', default='')  # type: ignore[arg-type]
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
