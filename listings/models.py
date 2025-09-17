@@ -19,8 +19,9 @@ class Listing(models.Model):
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.0'))
     review_count = models.PositiveIntegerField(default=0)
     location = models.CharField(max_length=255)
-    capacity = models.CharField(max_length=100, blank=True)
+    capacity = models.CharField(max_length=100, blank=True, null=True) # Allow null for non-venue items
     price_range = models.CharField(max_length=100, blank=True)
+    price_min = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     features = models.JSONField(default=list, blank=True)
     badges = models.JSONField(default=list, blank=True)
     featured = models.BooleanField(default=False)
@@ -30,7 +31,7 @@ class Listing(models.Model):
     attire_attrs = models.JSONField(default=dict, blank=True, null=True)
     catering_attrs = models.JSONField(default=dict, blank=True, null=True)
     rental_attrs = models.JSONField(default=dict, blank=True, null=True)
-    specialty_attrs = models.JSONField(default=dict, blank=True, null=True)
+    service_attrs = models.JSONField(default=dict, blank=True, null=True) # Renamed from specialty_attrs
     accessory_attrs = models.JSONField(default=dict, blank=True, null=True)
 
     def __str__(self):
