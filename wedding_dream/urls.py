@@ -23,4 +23,11 @@ urlpatterns = [
     path("api/v1/", include("core.urls")),
     path("api/v1/", include("listings.urls")),
     path("api/v1/", include("reviews.urls")),
+    path("api/v1/", include("messaging.urls")),
+    # Auth (Djoser + JWT)
+    path("api/v1/auth/", include("djoser.urls")),
+    path("api/v1/auth/", include("djoser.urls.jwt")),
+    # Profile & Wishlist endpoints
+    path("api/v1/", include("users.urls")),
+    path("api/v1/", include("wishlist.urls")),
 ]

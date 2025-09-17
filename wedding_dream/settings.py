@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "django_filters",
     "corsheaders",
     "rest_framework_simplejwt",
+    "djoser",
 
     # Local apps
     "core",
@@ -175,6 +176,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
     ],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.OrderingFilter",
@@ -189,4 +193,30 @@ REST_FRAMEWORK = {
 # Throttle rates
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     "guest_reviews": "5/hour",
+    "contact_requests": "10/hour",
 }
+
+# Djoser & SimpleJWT configuration
+DJOSER = {
+    "LOGIN_FIELD": "username",
+    "SERIALIZERS": {},
+}
+
+from datetime import timedelta
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+}
+
+# Allow Authorization header for CORS (for FE token auth)
+CORS_ALLOW_HEADERS = list(set((
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+)))
