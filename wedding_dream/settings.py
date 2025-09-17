@@ -180,6 +180,13 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
         "rest_framework.filters.SearchFilter",
     ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 10,
     # Ensure DRF uses its own template pack for the browsable API
     "DEFAULT_RENDERER_CLASSES_TEMPLATE_PACK": "rest_framework/vertical/",
+}
+
+# Throttle rates
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+    "guest_reviews": "5/hour",
 }
