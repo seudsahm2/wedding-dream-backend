@@ -33,26 +33,48 @@ class ListingListView(generics.ListAPIView):
     ordering_fields = ['rating', 'featured'] # Add more as needed, e.g., a price field
     
     def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Custom filtering logic can go here, for example:
-        min_price = self.request.query_params.get('minPrice')
-        if min_price:
-            # This is a simplified example. Assumes price is stored in a way that can be filtered.
-            # You would need to parse the price_range field or have a dedicated price field.
-            pass
+        qs = super().get_queryset()
 
-        sort = self.request.query_params.get('sort')
-        if sort == 'price-asc':
-            # queryset = queryset.order_by('price_field') # Replace with your actual price field
-            pass
+        params = self.request.query_params
+        # Map SPA params 1:1 per roadmap
+        cat = params.get('cat')  # category slug
+        city = params.get('city')  # substring search on location
+        min_price = params.get('minPrice')
+        max_price = params.get('maxPrice')
+        rating_gte = params.get('ratingGte')
+        sort = params.get('sort')
+
+        if cat:
+            qs = qs.filter(category__slug=cat)
+        if city:
+            qs = qs.filter(location__icontains=city)
+        if rating_gte:
+            try:
+                qs = qs.filter(rating__gte=float(rating_gte))
+            except ValueError:
+                pass
+        if min_price:
+            try:
+                qs = qs.filter(price_min__gte=float(min_price))
+            except ValueError:
+                pass
+        if max_price:
+            try:
+                qs = qs.filter(price_min__lte=float(max_price))
+            except ValueError:
+                pass
+
+        # Sorting
+        if sort == 'featured':
+            qs = qs.order_by('-featured', '-rating')
+        elif sort == 'price-asc':
+            qs = qs.order_by('price_min')
         elif sort == 'price-desc':
-            # queryset = queryset.order_by('-price_field')
-            pass
+            qs = qs.order_by('-price_min')
         elif sort == 'rating-desc':
-            queryset = queryset.order_by('-rating')
-        
-        return queryset
+            qs = qs.order_by('-rating')
+
+        return qs
 
 class FeaturedListingListView(generics.ListAPIView):
     queryset = Listing.objects.filter(featured=True)
