@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     # Third-party apps
+    "channels",
     "rest_framework",
     "django_filters",
     "corsheaders",
@@ -96,6 +97,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "wedding_dream.wsgi.application"
+ASGI_APPLICATION = "wedding_dream.asgi.application"
 
 
 # Database
@@ -220,3 +222,16 @@ CORS_ALLOW_HEADERS = list(set((
     "x-csrftoken",
     "x-requested-with",
 )))
+
+# Channels / websockets
+CHANNEL_LAYERS: dict = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
+REDIS_URL = os.getenv("REDIS_URL")
+if REDIS_URL:
+    CHANNEL_LAYERS["default"] = {  # type: ignore[assignment]
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [REDIS_URL]},
+    }
