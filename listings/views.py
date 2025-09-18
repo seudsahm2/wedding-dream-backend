@@ -1,4 +1,7 @@
 from rest_framework import generics, filters
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from django.core.cache import cache
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Category, Listing
 from .serializers import CategorySerializer, ListingSerializer
@@ -12,9 +15,14 @@ class StandardResultsSetPagination(PageNumberPagination):
 class CategoryListView(generics.ListAPIView):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+    
+    # Cache categories, low-cardinality and rarely-changing
+    @method_decorator(cache_page(60 * 60))  # 1 hour
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
 
 class ListingListView(generics.ListAPIView):
-    queryset = Listing.objects.all().order_by('-featured', '-rating')
+    queryset = Listing.objects.select_related('category').all().order_by('-featured', '-rating')
     serializer_class = ListingSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
@@ -77,9 +85,14 @@ class ListingListView(generics.ListAPIView):
         return qs
 
 class FeaturedListingListView(generics.ListAPIView):
-    queryset = Listing.objects.filter(featured=True)
+    queryset = Listing.objects.select_related('category').filter(featured=True)
     serializer_class = ListingSerializer
     pagination_class = None # No pagination for featured items
+    
+    # Small list; cache for short TTL (5 minutes)
+    @method_decorator(cache_page(60 * 5))
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
 
 class ListingDetailView(generics.RetrieveAPIView):
     queryset = Listing.objects.all()

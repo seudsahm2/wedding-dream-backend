@@ -37,3 +37,11 @@ class Listing(models.Model):
     def __str__(self):
         return self.title
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["-featured", "-rating"], name="listing_featured_rating_idx"),
+            models.Index(fields=["rating"], name="listing_rating_idx"),
+            models.Index(fields=["price_min"], name="listing_price_min_idx"),
+            models.Index(fields=["category", "featured"], name="listing_category_featured_idx"),
+        ]
+

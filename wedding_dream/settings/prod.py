@@ -68,6 +68,19 @@ CSRF_COOKIE_SAMESITE = _env.str('CSRF_COOKIE_SAMESITE', default='Lax')  # type: 
 SLOW_REQUEST_THRESHOLD_MS = _env.int('SLOW_REQUEST_THRESHOLD_MS', default=1000)  # type: ignore[arg-type]
 SLOW_DB_QUERY_MS = _env.int('SLOW_DB_QUERY_MS', default=200)  # type: ignore[arg-type]
 
+# Cache: Redis via django-redis
+CACHE_TTL = _env.int('CACHE_TTL', default=300)  # type: ignore[arg-type]
+CACHES = {
+	"default": {
+		"BACKEND": "django_redis.cache.RedisCache",
+		"LOCATION": _base.REDIS_URL or _env.str('CACHE_REDIS_URL', default='redis://127.0.0.1:6379/1'),  # type: ignore[arg-type]
+		"OPTIONS": {
+			"CLIENT_CLASS": "django_redis.client.DefaultClient",
+		},
+		"TIMEOUT": CACHE_TTL,
+	}
+}
+
 # Insert request/slow middlewares early, after SecurityMiddleware
 _mw = list(getattr(_base, "MIDDLEWARE", []))
 _insert_at = 1 if _mw and _mw[0] == "django.middleware.security.SecurityMiddleware" else 0
@@ -161,7 +174,7 @@ if SENTRY_DSN:
 		from sentry_sdk.integrations.logging import LoggingIntegration  # type: ignore
 
 		sentry_sdk.init(
-			dsn=SENTRY_DSN,
+			dsn=str(SENTRY_DSN),
 			integrations=[
 				DjangoIntegration(),
 				LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
