@@ -63,6 +63,17 @@ CSRF_COOKIE_HTTPONLY = _env.bool('CSRF_COOKIE_HTTPONLY', default=True)  # type: 
 CSRF_COOKIE_SAMESITE = _env.str('CSRF_COOKIE_SAMESITE', default='Lax')  # type: ignore[arg-type]
 
 # Email backend config via env expected
+EMAIL_BACKEND = _env.str('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')  # type: ignore[arg-type]
+EMAIL_HOST = _env.str('EMAIL_HOST', default='smtp.sendgrid.net')  # type: ignore[arg-type]
+EMAIL_PORT = _env.int('EMAIL_PORT', default=587)  # type: ignore[arg-type]
+EMAIL_USE_TLS = _env.bool('EMAIL_USE_TLS', default=True)  # type: ignore[arg-type]
+EMAIL_HOST_USER = _env.str('EMAIL_HOST_USER', default='apikey')  # type: ignore[arg-type]
+EMAIL_HOST_PASSWORD = _env.str('EMAIL_HOST_PASSWORD', default='')  # type: ignore[arg-type]
+DEFAULT_FROM_EMAIL = _env.str('DEFAULT_FROM_EMAIL', default='noreply@your-domain.example')  # type: ignore[arg-type]
+
+# Celery: ensure Redis broker/result are set for prod
+CELERY_BROKER_URL = _env.str('CELERY_BROKER_URL', default=_base.REDIS_URL or 'redis://127.0.0.1:6379/2')  # type: ignore[arg-type]
+CELERY_RESULT_BACKEND = _env.str('CELERY_RESULT_BACKEND', default=_base.REDIS_URL or 'redis://127.0.0.1:6379/3')  # type: ignore[arg-type]
 
 # Logging can be expanded later (JSON structure, request IDs)
 SLOW_REQUEST_THRESHOLD_MS = _env.int('SLOW_REQUEST_THRESHOLD_MS', default=1000)  # type: ignore[arg-type]

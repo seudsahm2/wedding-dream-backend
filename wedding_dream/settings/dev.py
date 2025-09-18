@@ -25,3 +25,12 @@ else:
         "NAME": str(_base.BASE_DIR / "db.sqlite3"),
     }
 globals()["DATABASES"]["default"] = _dev_db  # type: ignore[index]
+
+# Dev email defaults: Mailgun SMTP (optional). Falls back to console backend if not set.
+if not globals().get('EMAIL_BACKEND') or globals().get('EMAIL_BACKEND') == 'django.core.mail.backends.console.EmailBackend':
+    EMAIL_BACKEND = _base.env.str('DEV_EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')  # type: ignore[arg-type]
+    EMAIL_HOST = _base.env.str('DEV_EMAIL_HOST', default='')  # type: ignore[arg-type]
+    EMAIL_PORT = _base.env.int('DEV_EMAIL_PORT', default=587)  # type: ignore[arg-type]
+    EMAIL_USE_TLS = _base.env.bool('DEV_EMAIL_USE_TLS', default=True)  # type: ignore[arg-type]
+    EMAIL_HOST_USER = _base.env.str('DEV_EMAIL_HOST_USER', default='')  # type: ignore[arg-type]
+    EMAIL_HOST_PASSWORD = _base.env.str('DEV_EMAIL_HOST_PASSWORD', default='')  # type: ignore[arg-type]

@@ -173,3 +173,21 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
+
+# Celery common defaults (dev may override broker/result to local memory)
+CELERY_BROKER_URL = env.str('CELERY_BROKER_URL', default=REDIS_URL or 'redis://127.0.0.1:6379/2')  # type: ignore[arg-type]
+CELERY_RESULT_BACKEND = env.str('CELERY_RESULT_BACKEND', default=REDIS_URL or 'redis://127.0.0.1:6379/3')  # type: ignore[arg-type]
+CELERY_TASK_ALWAYS_EAGER = env.bool('CELERY_TASK_ALWAYS_EAGER', default=False)  # type: ignore[arg-type]
+CELERY_TASK_TIME_LIMIT = env.int('CELERY_TASK_TIME_LIMIT', default=300)  # type: ignore[arg-type]
+CELERY_TASK_SOFT_TIME_LIMIT = env.int('CELERY_TASK_SOFT_TIME_LIMIT', default=240)  # type: ignore[arg-type]
+CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int('CELERY_WORKER_MAX_TASKS_PER_CHILD', default=1000)  # type: ignore[arg-type]
+CELERY_WORKER_PREFETCH_MULTIPLIER = env.int('CELERY_WORKER_PREFETCH_MULTIPLIER', default=1)  # type: ignore[arg-type]
+
+# Optional celery beat example schedule (can be enabled when running beat)
+from celery.schedules import crontab  # type: ignore
+CELERY_BEAT_SCHEDULE = {
+    "cleanup-temp-files-hourly": {
+        "task": "core.tasks.cleanup_temp_files",
+        "schedule": crontab(minute=0),  # every hour
+    },
+}
