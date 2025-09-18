@@ -146,6 +146,12 @@ if REDIS_URL:
         "CONFIG": {"hosts": [REDIS_URL]},
     }
 
+# WebSocket allowed origins (used by custom Channels auth/rate-limit middleware)
+WS_ALLOWED_ORIGINS = env.list('WS_ALLOWED_ORIGINS', default=['http://localhost:5173', 'http://127.0.0.1:5173'])  # type: ignore[arg-type]
+# Basic runtime limits (connections per IP per minute, messages per user per minute)
+WS_CONN_MAX_PER_MINUTE = env.int('WS_CONN_MAX_PER_MINUTE', default=60)  # type: ignore[arg-type]
+WS_MSG_MAX_PER_MINUTE = env.int('WS_MSG_MAX_PER_MINUTE', default=120)  # type: ignore[arg-type]
+
 # Email backend (optional: for prod)
 EMAIL_BACKEND = env.str('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')  # type: ignore[arg-type]
 EMAIL_HOST = env.str('EMAIL_HOST', default='')  # type: ignore[arg-type]

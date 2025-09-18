@@ -19,6 +19,7 @@ try:
     from channels.routing import ProtocolTypeRouter, URLRouter
     from django.urls import re_path
     from messaging.auth import JWTAuthMiddleware
+    from messaging.rate_limit import RateLimitMiddleware
     from messaging.ws import ChatConsumer
 except ImportError:
     # Fallback if channels is not installed
@@ -26,12 +27,14 @@ except ImportError:
 else:
     websocket_urlpatterns: list[Any] = [
         # Pylance/mypy may not understand ASGI consumers here; cast to Any.
-        re_path(r"^ws/threads/(?P<pk>\\d+)/$", cast(Any, ChatConsumer.as_asgi())),
+        re_path(r"^ws/threads/(?P<pk>\d+)/$", cast(Any, ChatConsumer.as_asgi())),
     ]
 
     application = ProtocolTypeRouter({
         "http": django_asgi_app,
-        "websocket": JWTAuthMiddleware(
-            URLRouter(websocket_urlpatterns)
+        "websocket": RateLimitMiddleware(
+            JWTAuthMiddleware(
+                URLRouter(websocket_urlpatterns)
+            )
         ),
     })
