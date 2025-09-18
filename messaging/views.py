@@ -1,6 +1,7 @@
 from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
+from core.throttling import MessageSendThrottle, ThreadStartThrottle, ContactRequestUserThrottle
 
 from .models import ContactRequest, MessageThread, Message, ThreadParticipant
 from .serializers import (
@@ -32,7 +33,7 @@ class ContactRequestThrottle(SimpleRateThrottle):
 class ContactRequestCreateView(generics.CreateAPIView):
 	queryset = ContactRequest.objects.all()
 	serializer_class = ContactRequestCreateSerializer
-	throttle_classes = [ContactRequestThrottle]
+	throttle_classes = [ContactRequestThrottle, ContactRequestUserThrottle]
 
 	def create(self, request, *args, **kwargs):
 		serializer = self.get_serializer(data=request.data)
@@ -107,6 +108,7 @@ class ThreadDetailView(generics.RetrieveAPIView):
 class ThreadMessageCreateView(generics.CreateAPIView):
 	permission_classes = [permissions.IsAuthenticated, IsThreadParticipant]
 	serializer_class = MessageCreateSerializer
+	throttle_classes = [MessageSendThrottle]
 
 	def get_thread(self) -> MessageThread:
 		thread = generics.get_object_or_404(MessageThread, pk=self.kwargs.get("pk"))
@@ -153,6 +155,7 @@ class ThreadStartSerializer(MessageThreadDetailSerializer):
 class ThreadStartView(generics.CreateAPIView):
 	permission_classes = [permissions.IsAuthenticated]
 	serializer_class = ThreadStartSerializer
+	throttle_classes = [ThreadStartThrottle]
 
 	def create(self, request, *args, **kwargs):
 		listing_id = request.data.get("listing_id")

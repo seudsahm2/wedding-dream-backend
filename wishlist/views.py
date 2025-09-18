@@ -2,12 +2,14 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from listings.models import Listing
+from core.throttling import WishlistModifyThrottle
 from .models import WishlistItem
 from .serializers import WishlistItemSerializer
 
 
 class WishlistListCreateView(generics.GenericAPIView):
 	permission_classes = [permissions.IsAuthenticated]
+	throttle_classes = [WishlistModifyThrottle]
 
 	def get(self, request):
 		items = WishlistItem.objects.filter(user=request.user).select_related("listing").order_by("-added_at")
@@ -24,6 +26,7 @@ class WishlistListCreateView(generics.GenericAPIView):
 
 class WishlistDeleteView(generics.DestroyAPIView):
 	permission_classes = [permissions.IsAuthenticated]
+	throttle_classes = [WishlistModifyThrottle]
 
 	def delete(self, request, listing_id: int):
 		item = WishlistItem.objects.filter(user=request.user, listing_id=listing_id).first()

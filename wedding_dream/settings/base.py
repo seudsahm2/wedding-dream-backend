@@ -110,11 +110,22 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 10,
     "DEFAULT_RENDERER_CLASSES_TEMPLATE_PACK": "rest_framework/vertical/",
+    "EXCEPTION_HANDLER": "core.exceptions.exception_handler",
 }
 
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     "guest_reviews": "5/hour",
     "contact_requests": "10/hour",
+    # Per-user throttles (scoped in views)
+    "user_reviews": "20/hour",            # posting reviews while authenticated
+    "messages_send": "60/minute",         # sending chat messages
+    "threads_start": "20/hour",           # starting new threads
+    "wishlist_modify": "60/hour",         # wishlist add/remove per user
+    "preferences_update": "30/hour",      # profile updates per user
+    "contact_requests_user": "20/hour",   # authenticated contact requests
+    # Optional auth endpoints (Djoser) — to be wired if/when supported
+    "auth_login": "20/hour",
+    "auth_register": "10/hour",
 }
 
 DJOSER = {

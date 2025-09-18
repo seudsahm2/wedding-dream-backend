@@ -2,6 +2,7 @@ from rest_framework import permissions, generics
 from rest_framework.response import Response
 from django.contrib.auth.models import User
 from .models import UserProfile
+from core.throttling import PreferencesUpdateThrottle
 from .serializers import UserSerializer, UserProfileSerializer
 
 
@@ -17,6 +18,7 @@ class MeView(generics.GenericAPIView):
 
 class PreferencesView(generics.GenericAPIView):
 	permission_classes = [permissions.IsAuthenticated]
+	throttle_classes = [PreferencesUpdateThrottle]
 
 	def put(self, request):
 		profile, _ = UserProfile.objects.get_or_create(user=request.user)

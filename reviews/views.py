@@ -3,6 +3,7 @@ from django.db.models import QuerySet
 from rest_framework import generics, status, serializers as drf_serializers
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
+from core.throttling import UserReviewThrottle
 from django.shortcuts import get_object_or_404
 
 from listings.models import Listing
@@ -15,7 +16,7 @@ class GuestReviewThrottle(AnonRateThrottle):
 
 
 class ListingReviewListCreateView(generics.ListCreateAPIView):
-    throttle_classes = [GuestReviewThrottle]
+    throttle_classes = [GuestReviewThrottle, UserReviewThrottle]
     serializer_class = ReviewSerializer
     queryset = Review.objects.all()
 
