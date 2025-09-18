@@ -32,6 +32,8 @@ djangorestframework_simplejwt==5.5.1
 djoser==2.3.1
 drf-spectacular==0.28.0
 gunicorn==21.2.0
+python-json-logger==2.0.7
+sentry-sdk==2.18.0
 hyperlink==21.0.0
 idna==3.10
 incremental==24.7.2
