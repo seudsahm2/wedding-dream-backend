@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.conf import settings
 from .models import Category, Listing
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -39,12 +40,24 @@ class ListingSerializer(serializers.ModelSerializer):
         ]
 
     def get_image(self, obj: Listing):
-        url = obj.image or ''
-        # If it looks like a backend-local assets path, leave it to frontend normalizer
-        if url.startswith('assets/') or url.startswith('/assets/'):
-            return url
-        # If it's already an absolute URL, pass through
+        url = (obj.image or '').strip()
+        # Already absolute or vite asset path
         if url.startswith('http://') or url.startswith('https://') or url.startswith('/src/assets/'):
             return url
-        # Fallback to a known placeholder path the frontend can resolve
+        request = self.context.get('request')
+        # Backend demo asset path -> absolute
+        if url.startswith('assets/') or url.startswith('/assets/'):
+            path = url.lstrip('/')
+            abs_url = f"{settings.BACKEND_ASSETS_URL}{path.split('assets/', 1)[-1]}"
+            if request:
+                return request.build_absolute_uri(abs_url)
+            return abs_url
+        # If it's a relative media path, prefix MEDIA_URL
+        if url:
+            media_path = url.lstrip('/')
+            abs_url = f"{settings.MEDIA_URL}{media_path}"
+            if request:
+                return request.build_absolute_uri(abs_url)
+            return abs_url
+        # Final fallback placeholder (frontend local asset)
         return '/src/assets/luxury-wedding-hall.jpg'

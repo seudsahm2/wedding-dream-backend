@@ -1,6 +1,8 @@
 from rest_framework import serializers
-from .models import ContactRequest, MessageThread, Message, ThreadParticipant
-from listings.models import Listing
+from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
+from .models import ContactRequest, MessageThread, Message
+from django.apps import apps
 
 
 class ContactRequestSerializer(serializers.ModelSerializer):
@@ -17,14 +19,17 @@ class ContactRequestCreateSerializer(serializers.Serializer):
     message = serializers.CharField()
 
     def create(self, validated_data):
-        from listings.models import Listing
-
         listing_id = validated_data.pop("listing_id")
         try:
-            listing = Listing.objects.get(pk=listing_id)
-        except Listing.DoesNotExist:
-            raise serializers.ValidationError({"listing_id": "Listing not found"})
-        return ContactRequest.objects.create(listing=listing, **validated_data)
+            ListingModel = apps.get_model('listings', 'Listing')
+            listing = ListingModel.objects.get(pk=listing_id)
+        except ObjectDoesNotExist as exc:
+            raise serializers.ValidationError({"listing_id": "Listing not found"}) from exc
+        ContactRequestModel = apps.get_model('messaging', 'ContactRequest')
+        return ContactRequestModel.objects.create(listing=listing, **validated_data)
+
+    def update(self, instance, validated_data):  # pragma: no cover - not used
+        raise NotImplementedError("Update not supported for ContactRequestCreateSerializer")
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -69,13 +74,22 @@ class MessageThreadListSerializer(serializers.ModelSerializer):
         return "Conversation"
 
     def get_avatar(self, obj):
-        if getattr(obj, "listing", None) and getattr(obj.listing, "image", None):
-            img = obj.listing.image
-            # If image is a path like "assets/foo.jpg", make it absolute for FE
-            if isinstance(img, str) and not img.startswith("http"):
-                return f"http://127.0.0.1:8000/{img.lstrip('/')}"
-            return str(img)
-        return None
+        if not getattr(obj, "listing", None) or not getattr(obj.listing, "image", None):
+            return None
+        img = str(obj.listing.image).strip()
+        # Already absolute
+        if img.startswith("http://") or img.startswith("https://"):
+            return img
+        request = self.context.get("request")
+        # Backend assets
+        if img.startswith("assets/") or img.startswith("/assets/"):
+            path = img.lstrip('/')
+            abs_url = f"{settings.BACKEND_ASSETS_URL}{path.split('assets/', 1)[-1]}"
+            return request.build_absolute_uri(abs_url) if request else abs_url
+        # Relative media path
+        media_path = img.lstrip('/')
+        abs_url = f"{settings.MEDIA_URL}{media_path}"
+        return request.build_absolute_uri(abs_url) if request else abs_url
 
     def get_unreadCount(self, obj) -> int:
         request = self.context.get("request")
@@ -83,9 +97,10 @@ class MessageThreadListSerializer(serializers.ModelSerializer):
         if not user or not getattr(user, "is_authenticated", False):
             return 0
         try:
-            tp = ThreadParticipant.objects.get(thread=obj, user=user)
-            return int(tp.unread_count)
-        except ThreadParticipant.DoesNotExist:
+            ThreadParticipantModel = apps.get_model('messaging', 'ThreadParticipant')
+            tp = ThreadParticipantModel.objects.get(thread=obj, user=user)
+            return int(getattr(tp, 'unread_count', 0))
+        except ObjectDoesNotExist:
             return 0
 
 
@@ -98,7 +113,8 @@ class MessageThreadDetailSerializer(MessageThreadListSerializer):
     def get_messages(self, obj):
         qs = self.context.get("messages_qs")
         if qs is None:
-            qs = Message.objects.filter(thread=obj).order_by("created_at")
+            MessageModel = apps.get_model('messaging', 'Message')
+            qs = MessageModel.objects.filter(thread=obj).order_by("created_at")
         return MessageSerializer(qs, many=True, context=self.context).data
 
 
@@ -112,3 +128,9 @@ class MessageCreateSerializer(serializers.Serializer):
         if len(v) > 5000:
             raise serializers.ValidationError("Message too long")
         return v
+
+    def create(self, validated_data):  # pragma: no cover - not used by DRF directly
+        return validated_data
+
+    def update(self, instance, validated_data):  # pragma: no cover - not used
+        raise NotImplementedError("Update not supported for MessageCreateSerializer")

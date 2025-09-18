@@ -17,6 +17,8 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -31,3 +33,13 @@ urlpatterns = [
     path("api/v1/", include("users.urls")),
     path("api/v1/", include("wishlist.urls")),
 ]
+
+# Serve media and backend demo assets in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    # Serve backend/assets at /assets/
+    from django.views.static import serve as static_serve  # type: ignore
+    from django.urls import re_path
+    urlpatterns += [
+        re_path(r"^assets/(?P<path>.*)$", static_serve, {"document_root": settings.BACKEND_ASSETS_DIR}),
+    ]

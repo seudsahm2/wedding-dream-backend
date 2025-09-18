@@ -76,7 +76,18 @@ DATABASES = {
     "default": env.db('DATABASE_URL', default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),  # type: ignore[arg-type]
 }
 
-STATIC_URL = "static/"
+# Static files (collected for production)
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Media files (user uploads) — local dev defaults
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# Backend repo-provided assets (images under backend/assets/) for dev/demo
+# We serve these at /assets/ when DEBUG; in production you should host on a CDN
+BACKEND_ASSETS_URL = "/assets/"
+BACKEND_ASSETS_DIR = BASE_DIR / "assets"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -145,6 +156,18 @@ EMAIL_HOST_PASSWORD = env.str('EMAIL_HOST_PASSWORD', default='')  # type: ignore
 
 # Sentry DSN (optional)
 SENTRY_DSN = env.str('SENTRY_DSN', default='')  # type: ignore[arg-type]
+
+# Media storage backend selection (local | supabase)
+MEDIA_STORAGE_BACKEND = env.str('MEDIA_STORAGE_BACKEND', default='local')  # type: ignore[arg-type]
+
+# Supabase (optional) — used when MEDIA_STORAGE_BACKEND=supabase
+# For public buckets, media URL will be constructed as:
+#   {SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}
+# For private buckets you will need to implement signed URL generation.
+SUPABASE_URL = env.str('SUPABASE_URL', default='')  # type: ignore[arg-type]
+SUPABASE_BUCKET = env.str('SUPABASE_BUCKET', default='')  # type: ignore[arg-type]
+SUPABASE_ANON_KEY = env.str('SUPABASE_ANON_KEY', default='')  # type: ignore[arg-type]
+SUPABASE_SERVICE_ROLE_KEY = env.str('SUPABASE_SERVICE_ROLE_KEY', default='')  # type: ignore[arg-type]
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
