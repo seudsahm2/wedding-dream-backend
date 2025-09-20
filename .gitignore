@@ -127,6 +127,9 @@ docs/source/generated/
 docs/source/_generated/
 docs/html/
 docs/doctrees/
+# Project-level roadmap / untracked planning docs (placed outside tracked app folders)
+/../docs/
+/docs/
 
 # Build tools
 node_modules/
