@@ -28,8 +28,10 @@ venv
 virtualenv
 env.bak
 venv.bak
-migrations
-!/migrations/__init__.py
+# Allow Django migration files to be tracked (previously all migrations were ignored)
+# If you want to ignore only migration cache artifacts, you can add patterns like:
+# */migrations/__pycache__/
+# (Do NOT ignore the whole migrations folders; they are required for schema history.)
 *.env
 .env.*
 !.env.example
@@ -149,16 +151,12 @@ Thumbs.db
 desktop.ini
 ._*
 
-# Docker
-Dockerfile
-docker-compose.yml
-docker-compose.override.yml
-.dockerignore
+# Docker (keep custom docker assets tracked)
 *.docker
 *.docker-compose.yml
 
-# CI/CD
-.github/workflows/
+# CI/CD (keep workflows if added)
+# .github/workflows/
 .circleci/
 .gitlab-ci.yml
 .travis.yml

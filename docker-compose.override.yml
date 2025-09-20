@@ -1,0 +1,12 @@
+# Development overrides (optional)
+services:
+  web:
+    environment:
+      DEBUG: "1"
+    command: python manage.py runserver 0.0.0.0:8000
+  worker:
+    environment:
+      DEBUG: "1"
+  beat:
+    environment:
+      DEBUG: "1"

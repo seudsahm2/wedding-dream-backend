@@ -14,11 +14,16 @@ if not globals().get('CORS_ALLOWED_ORIGINS'):
 # Allowed hosts for dev
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
 
-# Database: force SQLite in dev unless DEV_DATABASE_URL is provided
-# This avoids accidental use of production DATABASE_URL locally.
-_dev_url = os.environ.get('DEV_DATABASE_URL', '').strip()
-if _dev_url:
+# Database selection precedence (development):
+# 1. DEV_DATABASE_URL (explicit dev override)
+# 2. DATABASE_URL (e.g., Supabase or local Postgres)
+# 3. Fallback to SQLite file
+_dev_override = os.environ.get('DEV_DATABASE_URL', '').strip()
+_db_url = os.environ.get('DATABASE_URL', '').strip()
+if _dev_override:
     _dev_db = _base.env.db('DEV_DATABASE_URL')  # type: ignore[arg-type]
+elif _db_url:
+    _dev_db = _base.env.db('DATABASE_URL')  # type: ignore[arg-type]
 else:
     _dev_db = {
         "ENGINE": "django.db.backends.sqlite3",

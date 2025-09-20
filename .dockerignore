@@ -1,0 +1,22 @@
+# Exclude files from Docker build context to speed up builds
+.git
+.gitignore
+__pycache__
+*.py[cod]
+*.log
+*.sqlite3
+*.env
+.env.*
+env
+venv
+virtualenv
+dist
+build
+*.egg-info
+node_modules
+media
+staticfiles
+collected_static
+docs
+tests
+*.md

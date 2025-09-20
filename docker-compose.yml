@@ -1,0 +1,112 @@
+services:
+  db:
+    # Local Postgres only when profile 'localdb' is enabled.
+    profiles: ["localdb"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wedding_dream}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Host port mapping removed intentionally.
+    # Enable with: docker compose --profile localdb up -d db
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No host port mapping; other containers reach it by service name 'redis'.
+    # If you need host access: add "6379:6379" back or run `docker compose exec redis redis-cli`.
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        - PYTHON_VERSION=${PYTHON_VERSION:-3.12}
+        - HOST_UID=${HOST_UID:-1000}
+        - HOST_GID=${HOST_GID:-1000}
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-wedding_dream.settings.dev}
+      # DATABASE_URL now taken from .env (Supabase or other). If you want to force local db when profile active:
+      # DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-wedding_dream}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CACHE_REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/2
+      CELERY_RESULT_BACKEND: redis://redis:6379/3
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      # db is only required if you choose the localdb profile AND your DATABASE_URL points at the db service.
+      # db:
+      #   condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        - HOST_UID=${HOST_UID:-1000}
+        - HOST_GID=${HOST_GID:-1000}
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-wedding_dream.settings.dev}
+      # DATABASE_URL from .env
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: redis://redis:6379/2
+      CELERY_RESULT_BACKEND: redis://redis:6379/3
+    command: celery -A wedding_dream worker -l info
+    volumes:
+      - .:/app
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    depends_on:
+      - web
+      - redis
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        - HOST_UID=${HOST_UID:-1000}
+        - HOST_GID=${HOST_GID:-1000}
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-wedding_dream.settings.dev}
+      # DATABASE_URL from .env
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: redis://redis:6379/2
+      CELERY_RESULT_BACKEND: redis://redis:6379/3
+    command: celery -A wedding_dream beat -l info
+    volumes:
+      - .:/app
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    depends_on:
+      - web
+      - redis
+
+volumes:
+  postgres_data:
