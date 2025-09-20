@@ -1,7 +1,6 @@
 services:
   db:
-    # Local Postgres only when profile 'localdb' is enabled.
-    profiles: ["localdb"]
+    # Local Postgres always available (removed profile gating for simplicity)
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-wedding_dream}

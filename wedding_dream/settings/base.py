@@ -185,6 +185,12 @@ SUPABASE_URL = env.str('SUPABASE_URL', default='')  # type: ignore[arg-type]
 SUPABASE_BUCKET = env.str('SUPABASE_BUCKET', default='')  # type: ignore[arg-type]
 SUPABASE_ANON_KEY = env.str('SUPABASE_ANON_KEY', default='')  # type: ignore[arg-type]
 SUPABASE_SERVICE_ROLE_KEY = env.str('SUPABASE_SERVICE_ROLE_KEY', default='')  # type: ignore[arg-type]
+SUPABASE_PRIVATE_BUCKET = env.bool('SUPABASE_PRIVATE_BUCKET', default=False)  # type: ignore[arg-type]
+SUPABASE_SIGNED_URL_TTL = env.int('SUPABASE_SIGNED_URL_TTL', default=3600)  # seconds
+
+# Image upload constraints
+MAX_UPLOAD_IMAGE_MB = env.int('MAX_UPLOAD_IMAGE_MB', default=5)
+ALLOWED_IMAGE_TYPES = set(filter(None, [t.strip() for t in env.str('ALLOWED_IMAGE_TYPES', default='image/jpeg,image/png,image/webp').split(',')]))
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"

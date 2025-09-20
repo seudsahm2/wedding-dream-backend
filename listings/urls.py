@@ -4,6 +4,9 @@ from .views import (
     ListingListView,
     FeaturedListingListView,
     ListingDetailView,
+    MyListingListView,
+    PublishListingView,
+    ImageUploadView,
 )
 
 urlpatterns = [
@@ -11,4 +14,7 @@ urlpatterns = [
     path('listings/', ListingListView.as_view(), name='listing-list'),
     path('listings/featured/', FeaturedListingListView.as_view(), name='featured-listing-list'),
     path('listings/<int:pk>/', ListingDetailView.as_view(), name='listing-detail'),
+    path('listings/mine/', MyListingListView.as_view(), name='my-listings'),
+    path('listings/<int:pk>/publish/', PublishListingView.as_view(), name='listing-publish'),
+    path('media/upload/', ImageUploadView.as_view(), name='image-upload'),
 ]
