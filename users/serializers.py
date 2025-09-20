@@ -6,7 +6,8 @@ from .models import UserProfile
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ["language", "notifications"]
+        fields = ["language", "notifications", "role"]
+        read_only_fields = ["role"]
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -15,3 +16,8 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username", "email", "first_name", "last_name", "profile"]
+
+
+class ProviderUpgradeSerializer(serializers.Serializer):
+    # Placeholder if we later need additional verification data
+    confirm = serializers.BooleanField(default=True)

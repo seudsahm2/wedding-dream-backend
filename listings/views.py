@@ -1,10 +1,11 @@
-from rest_framework import generics, filters
+from rest_framework import generics, filters, permissions
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Category, Listing
 from .serializers import CategorySerializer, ListingSerializer
+from core.permissions import IsProviderOrReadOnly
 from rest_framework.pagination import PageNumberPagination
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -21,11 +22,12 @@ class CategoryListView(generics.ListAPIView):
     def dispatch(self, *args, **kwargs):
         return super().dispatch(*args, **kwargs)
 
-class ListingListView(generics.ListAPIView):
+class ListingListView(generics.ListCreateAPIView):
     queryset = Listing.objects.select_related('category').all().order_by('-featured', '-rating')
     serializer_class = ListingSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    permission_classes = [IsProviderOrReadOnly]
     
     # Mapping frontend query params to Django filter lookups
     filterset_fields = {

@@ -61,3 +61,18 @@ class ListingSerializer(serializers.ModelSerializer):
             return abs_url
         # Final fallback placeholder (frontend local asset)
         return '/src/assets/luxury-wedding-hall.jpg'
+
+    def create(self, validated_data):
+        # validated_data['category'] will be {'slug': 'value'} because of source mapping
+        category_data = validated_data.pop('category', None)
+        if category_data:
+            slug = category_data.get('slug') if isinstance(category_data, dict) else category_data
+            try:
+                category = Category.objects.get(slug=slug)
+            except Category.DoesNotExist:
+                raise serializers.ValidationError({'category': 'Invalid category slug'})
+            validated_data['category'] = category
+        # Ensure defaults for immutable provider-managed fields
+        validated_data.setdefault('rating', 0)
+        validated_data.setdefault('review_count', 0)
+        return super().create(validated_data)
