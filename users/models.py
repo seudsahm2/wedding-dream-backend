@@ -8,6 +8,7 @@ class UserProfile(models.Model):
     business_name = models.CharField(max_length=255, blank=True, null=True)
     business_phone = models.CharField(max_length=40, blank=True, null=True)
     business_type = models.CharField(max_length=100, blank=True, null=True)
+    country = models.CharField(max_length=2, blank=True, null=True, help_text='ISO 3166-1 alpha-2 country code')
     # User role: normal users can only view listings; providers can create/manage listings
     ROLE_NORMAL = 'normal'
     ROLE_PROVIDER = 'provider'

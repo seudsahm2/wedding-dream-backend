@@ -74,3 +74,48 @@ class ListingOwnershipTests(TestCase):
 		list_resp = self.client.get(reverse('listing-list'))
 		results = list_resp.json().get('results', []) if isinstance(list_resp.json(), dict) else list_resp.json()
 		self.assertTrue(any(r['id'] == listing_id for r in results))
+
+
+class ListingAvailabilityTests(TestCase):
+	def setUp(self):
+		from users.models import UserProfile
+		self.client = APIClient()
+		self.provider = User.objects.create_user(username='prov2', password='pass123')
+		UserProfile.objects.create(user=self.provider, role=UserProfile.ROLE_PROVIDER)
+		self.category = Category.objects.create(name='Venue Hall', slug='venue-hall')
+		self.listing = Listing.objects.create(title='Hall A', category=self.category, image='x', location='City', price_min=1000, created_by=self.provider, status='published')
+
+	def auth(self, user):
+		self.client.force_authenticate(user=user)
+
+	def test_create_booking_and_month_view(self):
+		self.auth(self.provider)
+		url = reverse('listing-availability-create', args=[self.listing.id])
+		resp = self.client.post(url, {
+			'start_date': '2025-10-10',
+			'end_date': '2025-10-12',
+			'status': 'confirmed'
+		}, format='json')
+		self.assertEqual(resp.status_code, 201, resp.content)
+		# Month view
+		mv = self.client.get(reverse('listing-availability-month', args=[self.listing.id]), {'month': '2025-10'})
+		self.assertEqual(mv.status_code, 200)
+		booked = mv.json()['booked']
+		self.assertIn('2025-10-10', booked)
+		self.assertIn('2025-10-12', booked)
+
+	def test_overlap_booking_rejected(self):
+		self.auth(self.provider)
+		create_url = reverse('listing-availability-create', args=[self.listing.id])
+		r1 = self.client.post(create_url, {'start_date': '2025-11-01', 'end_date': '2025-11-05', 'status': 'confirmed'}, format='json')
+		self.assertEqual(r1.status_code, 201)
+		r2 = self.client.post(create_url, {'start_date': '2025-11-05', 'end_date': '2025-11-07', 'status': 'confirmed'}, format='json')
+		# Overlaps on boundary day 5 (inclusive), should reject
+		self.assertEqual(r2.status_code, 400, r2.content)
+
+	def test_public_month_requires_published(self):
+		# Set listing to draft and ensure month view returns 404
+		self.listing.status = 'draft'
+		self.listing.save(update_fields=['status'])
+		mv = self.client.get(reverse('listing-availability-month', args=[self.listing.id]), {'month': '2025-10'})
+		self.assertEqual(mv.status_code, 404)

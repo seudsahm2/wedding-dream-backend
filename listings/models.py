@@ -60,3 +60,53 @@ class Listing(models.Model):
             models.Index(fields=["created_by"], name="listing_created_by_idx"),
         ]
 
+
+class ListingAvailability(models.Model):
+    STATUS_TENTATIVE = 'tentative'
+    STATUS_CONFIRMED = 'confirmed'
+    STATUS_CANCELED = 'canceled'
+    STATUS_CHOICES = (
+        (STATUS_TENTATIVE, 'Tentative'),
+        (STATUS_CONFIRMED, 'Confirmed'),
+        (STATUS_CANCELED, 'Canceled'),
+    )
+    listing = models.ForeignKey(Listing, on_delete=models.CASCADE, related_name='availability')
+    start_date = models.DateField()
+    end_date = models.DateField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_CONFIRMED)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_availability')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['listing', 'start_date']),
+            models.Index(fields=['listing', 'end_date']),
+        ]
+        ordering = ['start_date']
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.start_date > self.end_date:
+            raise ValidationError('start_date must be <= end_date')
+        # Skip overlap validation if canceled
+        if self.status == self.STATUS_CANCELED:
+            return
+        qs = ListingAvailability.objects.filter(
+            listing=self.listing,
+            status__in=[self.STATUS_TENTATIVE, self.STATUS_CONFIRMED],
+            start_date__lte=self.end_date,
+            end_date__gte=self.start_date,
+        )
+        if self.pk:
+            qs = qs.exclude(pk=self.pk)
+        if qs.exists():
+            raise ValidationError('Overlapping booking exists for this listing')
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.listing_id} {self.start_date}→{self.end_date} ({self.status})"
+

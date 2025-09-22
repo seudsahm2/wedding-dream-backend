@@ -4,8 +4,8 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Category, Listing
-from .serializers import CategorySerializer, ListingSerializer
+from .models import Category, Listing, ListingAvailability
+from .serializers import CategorySerializer, ListingSerializer, ListingAvailabilitySerializer
 from core.permissions import IsProviderOwnerOrReadOnly
 from django.utils import timezone
 from rest_framework.response import Response
@@ -63,6 +63,7 @@ class ListingListView(generics.ListCreateAPIView):
         max_price = params.get('maxPrice')
         rating_gte = params.get('ratingGte')
         sort = params.get('sort')
+        customization_contains = params.get('customization')  # single customization option token
 
         if cat:
             qs = qs.filter(category__slug=cat)
@@ -83,6 +84,10 @@ class ListingListView(generics.ListCreateAPIView):
                 qs = qs.filter(price_min__lte=float(max_price))
             except ValueError:
                 pass
+
+        # Attribute contains filtering (attire customization options)
+        if customization_contains:
+            qs = qs.filter(attire_attrs__customizationOptions__icontains=customization_contains)
 
         # Sorting
         if sort == 'featured':
@@ -261,4 +266,66 @@ class ImageUploadView(views.APIView):
         else:
             url = request.build_absolute_uri(f"{settings.MEDIA_URL}{saved_path}")
         return Response({'url': url, 'path': saved_path}, status=201)
+
+
+class ListingAvailabilityCreateView(generics.CreateAPIView):
+    serializer_class = ListingAvailabilitySerializer
+    permission_classes = [IsProviderOwnerOrReadOnly]
+
+    def get_queryset(self):
+        return ListingAvailability.objects.filter(listing_id=self.kwargs['pk'])
+
+    def perform_create(self, serializer):
+        listing = generics.get_object_or_404(Listing, pk=self.kwargs['pk'])
+        # Ownership check: only owner can create
+        user = self.request.user
+        if not user.is_authenticated or listing.created_by_id != user.id:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only the listing owner can add availability')
+        serializer.save(listing=listing)
+
+
+class ListingAvailabilityMonthView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, pk):
+        # Accept ?month=YYYY-MM else current month
+        from datetime import date, timedelta
+        month_param = request.query_params.get('month')
+        today = date.today()
+        if month_param:
+            try:
+                year, month = map(int, month_param.split('-'))
+                first_day = date(year, month, 1)
+            except Exception:
+                first_day = date(today.year, today.month, 1)
+        else:
+            first_day = date(today.year, today.month, 1)
+        # Compute last day of month
+        if first_day.month == 12:
+            next_month = date(first_day.year + 1, 1, 1)
+        else:
+            next_month = date(first_day.year, first_day.month + 1, 1)
+        last_day = next_month - timedelta(days=1)
+
+        listing = generics.get_object_or_404(Listing, pk=pk, status='published')
+        # Fetch overlapping bookings
+        bookings = ListingAvailability.objects.filter(
+            listing=listing,
+            status__in=[ListingAvailability.STATUS_TENTATIVE, ListingAvailability.STATUS_CONFIRMED],
+            start_date__lte=last_day,
+            end_date__gte=first_day,
+        ).only('start_date', 'end_date')
+        booked_dates = set()
+        for b in bookings:
+            cur = b.start_date
+            while cur <= b.end_date and cur <= last_day:
+                if cur >= first_day:
+                    booked_dates.add(cur.isoformat())
+                cur += timedelta(days=1)
+        return Response({
+            'listing': listing.id,
+            'month': first_day.strftime('%Y-%m'),
+            'booked': sorted(booked_dates),
+        })
 

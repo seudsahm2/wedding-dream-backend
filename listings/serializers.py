@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Category, Listing
+from .models import Category, Listing, ListingAvailability
+from django.db import IntegrityError, transaction
 
 class CategorySerializer(serializers.ModelSerializer):
     key = serializers.CharField(source='slug')
@@ -17,6 +18,7 @@ class ListingSerializer(serializers.ModelSerializer):
     status = serializers.CharField(read_only=True)
     published_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.SerializerMethodField(read_only=True)
+    provider_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Listing
@@ -45,7 +47,34 @@ class ListingSerializer(serializers.ModelSerializer):
             'status',
             'published_at',
             'created_by',
+            'provider_name',
         ]
+
+    def validate(self, attrs):
+        # Enforce attire-bridal attribute schema basics according to roadmap
+        category_obj = attrs.get('category') if isinstance(attrs.get('category'), Category) else None
+        attire_attrs = attrs.get('attire_attrs') or {}
+        if category_obj and category_obj.slug == 'attire-bridal':
+            allowed_keys = { 'sizeRange', 'fabricTypes', 'customizationOptions', 'rental', 'images', 'deliveryAvailable' }
+            extra = set(attire_attrs.keys()) - allowed_keys
+            if extra:
+                raise serializers.ValidationError({'attire_attrs': f'Unexpected keys: {sorted(extra)}'})
+            # Required fields
+            if 'sizeRange' not in attire_attrs or not str(attire_attrs.get('sizeRange')).strip():
+                raise serializers.ValidationError({'attire_attrs': 'sizeRange required'})
+            if 'fabricTypes' not in attire_attrs or not isinstance(attire_attrs.get('fabricTypes'), list) or not attire_attrs.get('fabricTypes'):
+                raise serializers.ValidationError({'attire_attrs': 'fabricTypes must be non-empty array'})
+            # Optional arrays
+            if 'customizationOptions' in attire_attrs and not isinstance(attire_attrs['customizationOptions'], list):
+                raise serializers.ValidationError({'attire_attrs': 'customizationOptions must be an array'})
+            if 'images' in attire_attrs:
+                imgs = attire_attrs['images']
+                if not isinstance(imgs, list) or len(imgs) == 0:
+                    raise serializers.ValidationError({'attire_attrs': 'images must be a non-empty array when provided'})
+                # set primary listing.image from first if not explicitly passed
+                if not attrs.get('image') and imgs:
+                    attrs['image'] = imgs[0]
+        return super().validate(attrs)
 
     def _represent_image(self, instance: Listing):
         url = (instance.image or '').strip()
@@ -84,7 +113,27 @@ class ListingSerializer(serializers.ModelSerializer):
             try:
                 category = Category.objects.get(slug=slug)
             except Category.DoesNotExist:
-                raise serializers.ValidationError({'category': 'Invalid category slug'})
+                # Fallback: auto-create for known registry-driven slugs to keep FE/BE in sync
+                REGISTRY_SLUG_MAP = {
+                    'attire-bridal': 'Bridal Attire',
+                    'attire-groom': 'Groom Attire',
+                    'attire-party': 'Wedding Party Attire',
+                    'venue-hall': 'Venue Hall',
+                    'venue-outdoor': 'Outdoor Venue',
+                    'other-coming-soon': 'Other (Coming Soon)',
+                }
+                label = REGISTRY_SLUG_MAP.get(slug)
+                if not label:
+                    raise serializers.ValidationError({'category': 'Invalid category slug'})
+                try:
+                    with transaction.atomic():
+                        category = Category.objects.create(name=label, slug=slug)
+                except IntegrityError:
+                    # Another process may have created it; retrieve
+                    try:
+                        category = Category.objects.get(slug=slug)
+                    except Category.DoesNotExist:
+                        raise serializers.ValidationError({'category': 'Invalid category slug'})
             validated_data['category'] = category
         # Ensure defaults for immutable provider-managed fields
         validated_data.setdefault('rating', 0)
@@ -101,6 +150,14 @@ class ListingSerializer(serializers.ModelSerializer):
         if obj.created_by_id:
             return obj.created_by_id
         return None
+
+    def get_provider_name(self, obj: Listing):
+        # Prefer business name if available
+        if obj.created_by and hasattr(obj.created_by, 'profile'):
+            bn = getattr(obj.created_by.profile, 'business_name', None)
+            if bn:
+                return bn
+        return obj.created_by.username if obj.created_by else None
 
     def to_representation(self, instance: Listing):
         data = super().to_representation(instance)
@@ -119,3 +176,25 @@ class ListingSerializer(serializers.ModelSerializer):
         else:
             data['image_thumb'] = None
         return data
+
+
+class ListingAvailabilitySerializer(serializers.ModelSerializer):
+    listing = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = ListingAvailability
+        fields = [
+            'id', 'listing', 'start_date', 'end_date', 'status', 'created_by', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_by', 'created_at', 'updated_at', 'listing']
+
+    def validate(self, attrs):
+        if attrs['start_date'] > attrs['end_date']:
+            raise serializers.ValidationError('start_date must be <= end_date')
+        return attrs
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['created_by'] = request.user
+        return super().create(validated_data)
