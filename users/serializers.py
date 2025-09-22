@@ -6,7 +6,7 @@ from .models import UserProfile, ProviderServiceType
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ["language", "notifications", "role", "business_name", "business_phone", "business_type", "country"]
+        fields = ["language", "notifications", "role", "business_name", "business_phone", "business_type", "country", "city"]
         read_only_fields = ["role"]
 
 

@@ -43,3 +43,13 @@ class MessageSendThrottle(PerUserScopeThrottle):
 
 class ThreadStartThrottle(PerUserScopeThrottle):
     scope = "threads_start"
+
+
+class UsernameAvailabilityThrottle(PerIPScopeThrottle):
+    """Throttle rapid anonymous username availability polling to protect DB."""
+    scope = "username_available"
+
+
+class UsernameReminderThrottle(PerIPScopeThrottle):
+    """Throttle username reminder requests by IP to mitigate enumeration & abuse."""
+    scope = "username_reminder"

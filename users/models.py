@@ -9,6 +9,7 @@ class UserProfile(models.Model):
     business_phone = models.CharField(max_length=40, blank=True, null=True)
     business_type = models.CharField(max_length=100, blank=True, null=True)
     country = models.CharField(max_length=2, blank=True, null=True, help_text='ISO 3166-1 alpha-2 country code')
+    city = models.CharField(max_length=120, blank=True, null=True, help_text='City / locality name (frontend library sourced)')
     # User role: normal users can only view listings; providers can create/manage listings
     ROLE_NORMAL = 'normal'
     ROLE_PROVIDER = 'provider'
@@ -17,6 +18,7 @@ class UserProfile(models.Model):
         (ROLE_PROVIDER, 'Provider'),
     ]
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_NORMAL, db_index=True)
+    email_verified = models.BooleanField(default=False, help_text='True once user has confirmed email address')
 
     def __str__(self):
         return self.user.username

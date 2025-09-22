@@ -19,6 +19,8 @@ class ListingSerializer(serializers.ModelSerializer):
     published_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.SerializerMethodField(read_only=True)
     provider_name = serializers.SerializerMethodField(read_only=True)
+    provider_city = serializers.SerializerMethodField(read_only=True)
+    provider_country = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Listing
@@ -48,6 +50,8 @@ class ListingSerializer(serializers.ModelSerializer):
             'published_at',
             'created_by',
             'provider_name',
+            'provider_city',
+            'provider_country',
         ]
 
     def validate(self, attrs):
@@ -158,6 +162,16 @@ class ListingSerializer(serializers.ModelSerializer):
             if bn:
                 return bn
         return obj.created_by.username if obj.created_by else None
+
+    def get_provider_city(self, obj: Listing):
+        if obj.created_by and hasattr(obj.created_by, 'profile'):
+            return getattr(obj.created_by.profile, 'city', None)
+        return None
+
+    def get_provider_country(self, obj: Listing):
+        if obj.created_by and hasattr(obj.created_by, 'profile'):
+            return getattr(obj.created_by.profile, 'country', None)
+        return None
 
     def to_representation(self, instance: Listing):
         data = super().to_representation(instance)

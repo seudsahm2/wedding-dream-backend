@@ -13,6 +13,9 @@ if not globals().get('CORS_ALLOWED_ORIGINS'):
 
 # Allowed hosts for dev
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+# Ensure Django test client host is allowed to prevent DisallowedHost during tests
+if 'testserver' not in ALLOWED_HOSTS:  # pragma: no cover - simple defensive addition
+    ALLOWED_HOSTS.append('testserver')
 
 # Database selection precedence (development):
 # 1. DEV_DATABASE_URL (explicit dev override)
@@ -31,11 +34,32 @@ else:
     }
 globals()["DATABASES"]["default"] = _dev_db  # type: ignore[index]
 
-# Dev email defaults: Mailgun SMTP (optional). Falls back to console backend if not set.
-if not globals().get('EMAIL_BACKEND') or globals().get('EMAIL_BACKEND') == 'django.core.mail.backends.console.EmailBackend':
-    EMAIL_BACKEND = _base.env.str('DEV_EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')  # type: ignore[arg-type]
+"""Development email configuration
+
+Priority:
+1. If DEV_EMAIL_BACKEND is set, honor all DEV_EMAIL_* env vars.
+2. Else, if MAILPIT is running (assumed via docker-compose override), use Mailpit SMTP (host=mailpit, port=1025, no auth/TLS).
+3. Else, fallback to console backend.
+"""
+_explicit_dev_backend = _base.env.str('DEV_EMAIL_BACKEND', default='').strip()
+if _explicit_dev_backend:
+    EMAIL_BACKEND = _explicit_dev_backend  # type: ignore[assignment]
     EMAIL_HOST = _base.env.str('DEV_EMAIL_HOST', default='')  # type: ignore[arg-type]
     EMAIL_PORT = _base.env.int('DEV_EMAIL_PORT', default=587)  # type: ignore[arg-type]
     EMAIL_USE_TLS = _base.env.bool('DEV_EMAIL_USE_TLS', default=True)  # type: ignore[arg-type]
     EMAIL_HOST_USER = _base.env.str('DEV_EMAIL_HOST_USER', default='')  # type: ignore[arg-type]
     EMAIL_HOST_PASSWORD = _base.env.str('DEV_EMAIL_HOST_PASSWORD', default='')  # type: ignore[arg-type]
+else:
+    # Try Mailpit (container service name 'mailpit')
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'  # type: ignore[assignment]
+    EMAIL_HOST = 'mailpit'  # type: ignore[assignment]
+    EMAIL_PORT = 1025  # type: ignore[assignment]
+    EMAIL_USE_TLS = False  # type: ignore[assignment]
+    EMAIL_HOST_USER = ''  # type: ignore[assignment]
+    EMAIL_HOST_PASSWORD = ''  # type: ignore[assignment]
+
+DEFAULT_FROM_EMAIL = _base.env.str('DEFAULT_FROM_EMAIL', default='no-reply@localhost.test')  # type: ignore[arg-type]
+
+# Note: If you want an additional looser daily cap for username reminders,
+# you can later introduce a second throttle scope (e.g., username_reminder_day)
+# and include it on the view. For now we keep a single conservative scope.

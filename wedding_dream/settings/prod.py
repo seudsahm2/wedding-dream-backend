@@ -63,6 +63,15 @@ CSRF_COOKIE_HTTPONLY = _env.bool('CSRF_COOKIE_HTTPONLY', default=True)  # type: 
 CSRF_COOKIE_SAMESITE = _env.str('CSRF_COOKIE_SAMESITE', default='Lax')  # type: ignore[arg-type]
 
 # Email backend config via env expected
+# Production email (defaults aimed at SendGrid; override via env for other providers)
+# For SendGrid set:
+#   EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+#   EMAIL_HOST=smtp.sendgrid.net
+#   EMAIL_PORT=587
+#   EMAIL_USE_TLS=True
+#   EMAIL_HOST_USER=apikey
+#   EMAIL_HOST_PASSWORD=<your sendgrid API key>
+#   DEFAULT_FROM_EMAIL=Your Brand <noreply@your-domain.example>
 EMAIL_BACKEND = _env.str('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')  # type: ignore[arg-type]
 EMAIL_HOST = _env.str('EMAIL_HOST', default='smtp.sendgrid.net')  # type: ignore[arg-type]
 EMAIL_PORT = _env.int('EMAIL_PORT', default=587)  # type: ignore[arg-type]

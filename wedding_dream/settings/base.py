@@ -126,10 +126,18 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     # Optional auth endpoints (Djoser) — to be wired if/when supported
     "auth_login": "20/hour",
     "auth_register": "10/hour",
+    # Username availability (anonymous polling)
+    "username_available": "30/minute",
+    # Username reminder (email usernames) — conservative per IP
+    "username_reminder": "3/hour",
 }
 
 DJOSER = {
     "LOGIN_FIELD": "username",
+    "SEND_ACTIVATION_EMAIL": True,
+    "SEND_CONFIRMATION_EMAIL": True,
+    "PASSWORD_RESET_CONFIRM_URL": "reset-password/{uid}/{token}",
+    "ACTIVATION_URL": "activate/{uid}/{token}",
     "SERIALIZERS": {},
 }
 
