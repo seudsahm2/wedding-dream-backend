@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "django_filters",
     "corsheaders",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "djoser",
 
     # Local apps
@@ -125,11 +126,14 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     "contact_requests_user": "20/hour",   # authenticated contact requests
     # Optional auth endpoints (Djoser) — to be wired if/when supported
     "auth_login": "20/hour",
+    # Per-username (case-insensitive) login attempts to slow brute force (5/min ~ 300/hr theoretical but burst limited)
+    "auth_login_user": "5/minute",
     "auth_register": "10/hour",
     # Username availability (anonymous polling)
     "username_available": "30/minute",
     # Username reminder (email usernames) — conservative per IP
     "username_reminder": "3/hour",
+    "email_change": "5/hour",
 }
 
 DJOSER = {
@@ -138,14 +142,30 @@ DJOSER = {
     "SEND_CONFIRMATION_EMAIL": True,
     "PASSWORD_RESET_CONFIRM_URL": "reset-password/{uid}/{token}",
     "ACTIVATION_URL": "activate/{uid}/{token}",
-    "SERIALIZERS": {},
+    "SERIALIZERS": {
+        "user_create": "users.serializers.UnifiedUserCreateSerializer",
+    },
 }
 
 from datetime import timedelta
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    # Security hardening: rotate refresh tokens so stolen old tokens are invalidated.
+    "ROTATE_REFRESH_TOKENS": True,
+    # Place rotated (used) refresh tokens on blacklist so they cannot be reused.
+    "BLACKLIST_AFTER_ROTATION": True,
+    # Future: consider setting UPDATE_LAST_LOGIN=True if auditing last login needed.
 }
+
+# Django built‑in password validators (baseline policy)
+# Adjust MIN_LENGTH or introduce custom validators as business rules evolve.
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 12}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
 
 # CORS defaults (tighten in prod.py, relax in dev.py)
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])  # type: ignore[arg-type]
@@ -221,4 +241,26 @@ CELERY_BEAT_SCHEDULE = {
         "task": "core.tasks.cleanup_temp_files",
         "schedule": crontab(minute=0),  # every hour
     },
+    "users-email-account-cleanup-daily": {
+        "task": "users.tasks.cleanup_unverified_and_email_changes",
+        "schedule": crontab(hour=3, minute=5),  # daily off-peak
+    },
 }
+
+# Account & email change retention
+UNVERIFIED_ACCOUNT_MAX_AGE_DAYS = env.int('UNVERIFIED_ACCOUNT_MAX_AGE_DAYS', default=14)
+EMAIL_CHANGE_TOKEN_MINUTES = env.int('EMAIL_CHANGE_TOKEN_MINUTES', default=60)
+EMAIL_CHANGE_REQUEST_RETENTION_DAYS = env.int('EMAIL_CHANGE_REQUEST_RETENTION_DAYS', default=7)
+
+# reCAPTCHA (v2 checkbox or v3 score) configuration (frontend supplies token; backend verifies)
+RECAPTCHA_ENABLED = env.bool('RECAPTCHA_ENABLED', default=False)
+RECAPTCHA_VERSION = env.str('RECAPTCHA_VERSION', default='v3')  # 'v2' | 'v3'
+RECAPTCHA_SITE_KEY = env.str('RECAPTCHA_SITE_KEY', default='')
+RECAPTCHA_SECRET_KEY = env.str('RECAPTCHA_SECRET_KEY', default='')
+RECAPTCHA_MIN_SCORE = env.float('RECAPTCHA_MIN_SCORE', default=0.5)  # used only for v3
+RECAPTCHA_ENFORCE_ENDPOINTS = set(filter(None, [s.strip() for s in env.str('RECAPTCHA_ENFORCE_ENDPOINTS', default='auth_register,provider_register,login').split(',')]))
+
+# Session / device management
+SESSION_IP_HASH_SALT = env.str('SESSION_IP_HASH_SALT', default='change-me-ip-salt')
+SESSION_MAX_ACTIVE = env.int('SESSION_MAX_ACTIVE', default=20)  # safety upper bound
+SESSION_IDLE_RETENTION_DAYS = env.int('SESSION_IDLE_RETENTION_DAYS', default=60)

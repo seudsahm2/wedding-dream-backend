@@ -106,7 +106,15 @@ _mw = list(getattr(_base, "MIDDLEWARE", []))
 _insert_at = 1 if _mw and _mw[0] == "django.middleware.security.SecurityMiddleware" else 0
 _mw.insert(_insert_at, "core.middleware.RequestIDMiddleware")
 _mw.insert(_insert_at + 1, "core.middleware.SlowRequestLoggingMiddleware")
+# Content Security Policy & security headers middleware (implemented in core.middleware)
+if "core.middleware.SecurityHeadersMiddleware" not in _mw:
+	_mw.insert(_insert_at + 2, "core.middleware.SecurityHeadersMiddleware")
 MIDDLEWARE = _mw
+
+# Optional CSP reporting endpoint (e.g., /csp-report) & custom overrides
+CSP_REPORT_URI = _env.str('CSP_REPORT_URI', default='')  # type: ignore[arg-type]
+# Allow overriding base CSP (without report-uri) via CONTENT_SECURITY_POLICY_BASE or full policy via CONTENT_SECURITY_POLICY
+CONTENT_SECURITY_POLICY_BASE = _env.str('CONTENT_SECURITY_POLICY_BASE', default="")  # type: ignore[arg-type]
 
 # Structured JSON logging
 class RequestIdFilter(logging.Filter):

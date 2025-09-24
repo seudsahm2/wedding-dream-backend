@@ -1,7 +1,7 @@
 from rest_framework import permissions, generics, status
 from rest_framework.response import Response
 from django.contrib.auth.models import User
-from .models import UserProfile, ProviderServiceType
+from .models import UserProfile, ProviderServiceType, EmailChangeRequest
 from .constants import ALLOWED_PROVIDER_COUNTRIES, DIAL_CODE_MAP
 from core.throttling import PreferencesUpdateThrottle
 from .serializers import (
@@ -19,6 +19,9 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.utils.html import escape
 from django.http import HttpResponse
+from django.utils import timezone
+from django.conf import settings as dj_settings
+import secrets, hashlib
 
 
 class MeView(generics.GenericAPIView):
@@ -86,77 +89,35 @@ class RegisterProviderView(APIView):
 	REQUIRED_FIELDS = ["username", "password", "email", "business_name", "business_phone", "country", "city", "business_type"]
 
 	def post(self, request):
+		from .serializers import UnifiedUserCreateSerializer
 		payload = request.data.copy()
-		# Enforced activation irrespective of DJOSER config
-		require_activation = True
-		# Phone validation (basic) extracted to helper
-		def validate_phone(raw: str, country_code: str):
-			import phonenumbers
-			phone_raw = raw.strip()
-			try:
-				# Parse with region; if user omitted '+' this will still work
-				parsed = phonenumbers.parse(phone_raw, country_code)
-				if not phonenumbers.is_valid_number(parsed):
-					return False, "Invalid phone number"
-				# Ensure region matches provided ISO country (allow special cases where library maps)
-				region = phonenumbers.region_code_for_number(parsed)
-				if region and region.upper() != country_code.upper():
-					return False, "Phone country code mismatch"
-				e164 = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-				return True, e164
-			except phonenumbers.NumberParseException:
-				return False, "Could not parse phone number"
-		
-		missing = [f for f in self.REQUIRED_FIELDS if not str(payload.get(f, '')).strip()]
-		if missing:
-			return Response({"detail": "Missing required fields", "missing": missing}, status=400)
-		# Country whitelist + format check
-		country = payload.get('country','').upper()
-		if len(country) != 2:
-			return Response({"country": ["Must be 2-letter ISO code"]}, status=400)
-		if country not in ALLOWED_PROVIDER_COUNTRIES:
-			return Response({"country": ["Country not supported yet"]}, status=400)
-		city = payload.get('city', '').strip()
-		if not city:
-			return Response({"city": ["City is required"]}, status=400)
-		payload['country'] = country
-		# Validate provider service type existence if table migrated
-		btype = payload.get('business_type')
-		try:
-			if not ProviderServiceType.objects.filter(slug=btype, active=True).exists():
-				return Response({"business_type": ["Invalid provider type"]}, status=400)
-		except Exception:
-			pass
-		# Validate phone
-		ok, norm_phone_or_msg = validate_phone(payload['business_phone'], country)
-		if not ok:
-			return Response({"business_phone": [norm_phone_or_msg]}, status=400)
-		payload['business_phone'] = norm_phone_or_msg
-		# Create user via Django directly (avoids complexity of djoser remapping). Minimal fields only.
-		username = payload['username']
-		if User.objects.filter(username=username).exists():
-			return Response({"username": ["Username already exists"]}, status=400)
-		email = payload.get('email') or ''
-		if not email:
-			return Response({"email": ["Email is required for provider activation"]}, status=400)
-		user = User.objects.create_user(username=username, password=payload['password'], email=email)
-		# Force inactive until activation link consumed
-		user.is_active = False
-		user.save(update_fields=["is_active"])
-		profile, _ = UserProfile.objects.get_or_create(user=user)
-		profile.role = UserProfile.ROLE_PROVIDER
-		profile.business_name = payload['business_name']
-		profile.business_phone = payload['business_phone']
-		profile.business_type = btype
-		profile.country = country
-		profile.city = city
-		profile.save()
-		data = UserSerializer(user).data
-		data["role"] = profile.role
-		data["is_provider"] = True
-		data["country"] = profile.country
-		data["business_phone"] = profile.business_phone
-		# Always send activation email (best effort) without failing the request if email send crashes
+		payload['is_provider'] = True
+		payload['password2'] = payload.get('password2') or payload.get('password')  # allow single password field fallback
+		ser = UnifiedUserCreateSerializer(data=payload)
+		ser.is_valid(raise_exception=True)
+		user = ser.save()
+		# Send activation email (reuse helper)
+		from .auth_views import send_activation_email_if_needed
+		send_activation_email_if_needed(user)
+		return Response(ser.to_representation(user), status=201)
+
+
+class ProviderUpgradeView(generics.GenericAPIView):
+	"""Upgrade existing authenticated user to provider (strict unified version).
+
+	New: Requires verified email (profile.email_verified). If not verified, returns 403 and
+	triggers resend of activation link (best-effort) so user can complete verification first.
+	Logs all attempts.
+	"""
+	permission_classes = [permissions.IsAuthenticated]
+
+	def _log(self, event: str, user, **extra):  # pragma: no cover (logging utility)
+		import logging
+		logger = logging.getLogger('wedding_dream.auth')
+		payload = {"event": event, "user_id": user.id, "username": user.username, **extra}
+		logger.info(event, extra=payload)
+
+	def _resend_activation(self, user):  # best-effort resend
 		try:
 			from djoser.utils import encode_uid
 			from djoser.tokens import default_token_generator
@@ -169,20 +130,26 @@ class RegisterProviderView(APIView):
 				email_cls(context=context).send(to=[user.email])
 		except Exception:  # pragma: no cover
 			pass
-		data["activation_required"] = True
-		return Response(data, status=201)
-
-
-class ProviderUpgradeView(generics.GenericAPIView):
-	"""Upgrade existing authenticated user to provider (strict unified version)."""
-	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		profile, _ = UserProfile.objects.get_or_create(user=request.user)
+		if profile.role == UserProfile.ROLE_PROVIDER:
+			self._log('provider_upgrade_already_provider', request.user, email_verified=profile.email_verified)
+			ser = UserSerializer(request.user).data
+			ser['role'] = profile.role
+			ser['is_provider'] = True
+			ser['email_verified'] = profile.email_verified
+			return Response(ser, status=200)
+		if not profile.email_verified:
+			# Resend activation and block
+			self._resend_activation(request.user)
+			self._log('provider_upgrade_blocked_unverified', request.user, email_verified=False)
+			return Response({"detail": "Email not verified. Activation link resent."}, status=403)
 		# Required fields for upgrade
 		required = ["business_name", "business_phone", "business_type", "country", "city"]
 		missing = [f for f in required if not str(request.data.get(f, '')).strip()]
 		if missing:
+			self._log('provider_upgrade_missing_fields', request.user, missing=missing, email_verified=profile.email_verified)
 			return Response({"detail": "Missing required fields", "missing": missing}, status=400)
 		country = request.data.get('country','').upper()
 		if len(country) != 2:
@@ -198,7 +165,7 @@ class ProviderUpgradeView(generics.GenericAPIView):
 				return Response({"business_type": ["Invalid provider type"]}, status=400)
 		except Exception:
 			pass
-		# Validate phone using same logic as registration
+		# Validate phone
 		def validate_phone(raw: str, country_code: str):
 			import phonenumbers
 			try:
@@ -227,6 +194,8 @@ class ProviderUpgradeView(generics.GenericAPIView):
 		ser['is_provider'] = True
 		ser['country'] = profile.country
 		ser['business_phone'] = profile.business_phone
+		ser['email_verified'] = profile.email_verified
+		self._log('provider_upgrade_success', request.user, email_verified=profile.email_verified)
 		return Response(ser, status=200)
 
 
@@ -345,6 +314,73 @@ class UsernameReminderView(APIView):
 		return Response({"detail": "If the email exists, a reminder will be sent."}, status=200)
 
 
+class EmailChangeRequestView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+	from core.throttling import EmailChangeThrottle
+	throttle_classes = [EmailChangeThrottle]
+
+	def post(self, request):
+		new_email = str(request.data.get('new_email') or '').strip().lower()
+		if not new_email:
+			return Response({'new_email': ['This field is required']}, status=400)
+		if User.objects.filter(email__iexact=new_email).exists():
+			return Response({'new_email': ['Email already in use']}, status=400)
+		# Invalidate prior pending requests for this user & email
+		EmailChangeRequest.objects.filter(user=request.user, consumed_at__isnull=True, new_email=new_email).delete()
+		# Generate token
+		token_raw = secrets.token_urlsafe(32)
+		token = hashlib.sha256(token_raw.encode()).hexdigest()[:64]
+		token_minutes = getattr(settings, 'EMAIL_CHANGE_TOKEN_MINUTES', 60)
+		expires_at = timezone.now() + timezone.timedelta(minutes=token_minutes)
+		EmailChangeRequest.objects.create(user=request.user, new_email=new_email, token=token, expires_at=expires_at)
+		# Email best-effort
+		try:
+			from django.core.mail import send_mail
+			activation_url = f"{getattr(dj_settings,'PUBLIC_BASE_URL','http://localhost:5173')}/confirm-email-change/{token_raw}"
+			# We send token_raw encoded; verify uses hash
+			body = f"Use this link to confirm your email change: {activation_url}\nIf you did not request this, ignore the message."
+			send_mail(
+				"Confirm your email change",
+				body,
+				getattr(dj_settings,'DEFAULT_FROM_EMAIL','no-reply@localhost'),
+				[new_email],
+				fail_silently=True,
+			)
+		except Exception:
+			pass
+		return Response({'detail': 'Email change requested. Check new inbox to confirm.'}, status=201)
+
+
+class EmailChangeConfirmView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+
+	def post(self, request):
+		token_raw = str(request.data.get('token') or '').strip()
+		if not token_raw:
+			return Response({'token': ['Token required']}, status=400)
+		token_hash = hashlib.sha256(token_raw.encode()).hexdigest()[:64]
+		try:
+			rec = EmailChangeRequest.objects.get(token=token_hash, user=request.user, consumed_at__isnull=True)
+		except EmailChangeRequest.DoesNotExist:
+			return Response({'detail': 'Invalid or expired token'}, status=400)
+		if rec.is_expired():
+			return Response({'detail': 'Token expired'}, status=400)
+		# Apply email change
+		user = request.user
+		user.email = rec.new_email
+		user.save(update_fields=['email'])
+		# Reset verification status
+		profile, _ = UserProfile.objects.get_or_create(user=user)
+		profile.email_verified = False
+		profile.save(update_fields=['email_verified'])
+		rec.consumed_at = timezone.now()
+		rec.save(update_fields=['consumed_at'])
+		# Trigger new activation email for verification of new address
+		from .auth_views import send_activation_email_if_needed
+		send_activation_email_if_needed(user)
+		return Response({'detail': 'Email updated. Please verify new address.'}, status=200)
+
+
 class ActivationRedirectView(APIView):
 	"""GET /activate/<uid>/<token> convenience endpoint for activation via browser click."""
 	permission_classes = []
@@ -379,6 +415,87 @@ class ActivationRedirectView(APIView):
 		if changed:
 			# Persist activation status
 			user.save(update_fields=['is_active'])
+			# Log activation success
+			import logging
+			logging.getLogger('wedding_dream.auth').info('activation_success', extra={'event': 'activation_success', 'user_id': user.id, 'username': user.username})
 		return HttpResponse("<h1>Account Activated</h1><p>You can now log in.</p>", status=200)
+
+
+from .models import UserSession  # placed at end to avoid circular import issues earlier
+
+
+class SessionListView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+
+	def get(self, request):
+		sessions = UserSession.objects.filter(user=request.user).order_by('-last_seen')[:100]
+		# Try to detect current session from JWT claim
+		current_pid = None
+		try:
+			token = getattr(request, 'auth', None)
+			if token is not None:
+				# SimpleJWT token acts like a dict
+				current_pid = token.get('session_pid', None)
+		except Exception:
+			current_pid = None
+		out = []
+		for s in sessions:
+			out.append({
+				'public_id': s.public_id,
+				'label': s.label or 'Device',
+				'created_at': s.created_at,
+				'last_seen': s.last_seen,
+				'revoked': bool(s.revoked_at),
+				'is_current': (s.public_id == current_pid) if current_pid else False,
+			})
+		return Response({'results': out})
+
+
+class SessionRevokeView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+
+	def post(self, request):
+		pid = request.data.get('public_id')
+		if not pid:
+			# backward compatibility: accept integer id
+			legacy_id = request.data.get('id')
+			if not legacy_id:
+				return Response({'detail': 'public_id required'}, status=400)
+			try:
+				s = UserSession.objects.get(id=legacy_id, user=request.user)
+			except UserSession.DoesNotExist:
+				return Response({'detail': 'Not found'}, status=404)
+		else:
+			try:
+				s = UserSession.objects.get(public_id=pid, user=request.user)
+			except UserSession.DoesNotExist:
+				return Response({'detail': 'Not found'}, status=404)
+		if s.revoked_at:
+			return Response({'detail': 'Already revoked'})
+		s.mark_revoked()
+		return Response({'detail': 'Revoked'})
+
+
+class SessionRevokeAllOtherView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+
+	def post(self, request):
+		# Determine current session from token claim if present; allow override via keep_public_id
+		keep_public_id = request.data.get('keep_public_id')
+		if not keep_public_id:
+			try:
+				token = getattr(request, 'auth', None)
+				if token is not None:
+					keep_public_id = token.get('session_pid', None)
+			except Exception:
+				keep_public_id = None
+		qs = UserSession.objects.filter(user=request.user, revoked_at__isnull=True)
+		if keep_public_id:
+			qs = qs.exclude(public_id=keep_public_id)
+		count = 0
+		for s in qs.iterator():
+			s.mark_revoked()
+			count += 1
+		return Response({'detail': f'Revoked {count} sessions'})
 
 

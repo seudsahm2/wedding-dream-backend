@@ -101,3 +101,27 @@ class ProviderRegistrationPhoneTests(TestCase):
 		u = User.objects.get(username='activationcheck')
 		self.assertFalse(u.is_active)
 
+
+class LoginThrottleTests(TestCase):
+	"""Validate combined IP + username throttling rejects rapid repeated attempts per username."""
+
+	def setUp(self):
+		self.login_url = reverse('login')
+		User.objects.create_user(username='throttleuser', password='CorrectHorseBatteryStaple1')
+
+	def test_username_throttle_after_five_attempts(self):
+		# 5 failed attempts should be allowed; 6th should 429 given 5/minute username throttle
+		for i in range(5):
+			resp = self.client.post(self.login_url, data={'username': 'throttleuser', 'password': f'WrongPass{i}'})
+			self.assertIn(resp.status_code, (400, 401))  # simplejwt returns 401; custom could be 400
+		sixth = self.client.post(self.login_url, data={'username': 'throttleuser', 'password': 'AnotherWrong'})
+		self.assertEqual(sixth.status_code, 429, f"Expected 429 after exceeding username throttle, got {sixth.status_code}")
+
+	def test_other_username_not_blocked(self):
+		# Exhaust throttle for first user
+		for i in range(6):
+			self.client.post(self.login_url, data={'username': 'throttleuser', 'password': 'Bad'})
+		# Different username should still proceed (even if fails auth) not 429
+		resp_other = self.client.post(self.login_url, data={'username': 'differentuser', 'password': 'Bad'})
+		self.assertNotEqual(resp_other.status_code, 429)
+

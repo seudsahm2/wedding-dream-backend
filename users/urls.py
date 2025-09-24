@@ -9,6 +9,11 @@ from .views import (
     UsernameAvailabilityView,
     ProviderMetaView,
     UsernameReminderView,
+    EmailChangeRequestView,
+    EmailChangeConfirmView,
+    SessionListView,
+    SessionRevokeView,
+    SessionRevokeAllOtherView,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 from .auth_views import ThrottledTokenObtainPairView, ThrottledRegisterView
@@ -23,6 +28,11 @@ urlpatterns = [
     path("auth/username-available", UsernameAvailabilityView.as_view(), name="username-available"),
     path("auth/provider-meta", ProviderMetaView.as_view(), name="provider-meta"),
     path("auth/username-reminder", UsernameReminderView.as_view(), name="username-reminder"),
+    path("auth/email-change/request", EmailChangeRequestView.as_view(), name="email-change-request"),
+    path("auth/email-change/confirm", EmailChangeConfirmView.as_view(), name="email-change-confirm"),
+    path("auth/sessions", SessionListView.as_view(), name="sessions"),
+    path("auth/sessions/revoke", SessionRevokeView.as_view(), name="session-revoke"),
+    path("auth/sessions/revoke_all", SessionRevokeAllOtherView.as_view(), name="session-revoke-all"),
     # Convenience aliases for roadmap
     path("auth/register", ThrottledRegisterView.as_view(), name="register"),
     path("auth/login", ThrottledTokenObtainPairView.as_view(), name="login"),
