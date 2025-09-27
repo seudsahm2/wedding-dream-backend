@@ -157,6 +157,74 @@ if REDIS_URL:
         "CONFIG": {"hosts": [REDIS_URL]},
     }
 
+# Managed / Remote Redis (Aiven) integration (preferred when USE_AIVEN_REDIS=1)
+USE_AIVEN_REDIS = env.bool('USE_AIVEN_REDIS', default=False)  # type: ignore[arg-type]
+if USE_AIVEN_REDIS:
+    AIVEN_SCHEME = env.str('AIVEN_REDIS_SCHEME', default='rediss')  # type: ignore[arg-type]
+    AIVEN_HOST = env.str('AIVEN_REDIS_HOST', default='')  # type: ignore[arg-type]
+    AIVEN_PORT = env.str('AIVEN_REDIS_PORT', default='')  # type: ignore[arg-type]
+    AIVEN_USER = env.str('AIVEN_REDIS_USER', default='default')  # type: ignore[arg-type]
+    AIVEN_PASSWORD = env.str('AIVEN_REDIS_PASSWORD', default='')  # type: ignore[arg-type]
+    AIVEN_DB_CACHE = str(env.str('AIVEN_REDIS_DB_CACHE', default='0'))  # type: ignore[arg-type]
+    AIVEN_DB_BROKER = str(env.str('AIVEN_REDIS_DB_BROKER', default='1'))  # type: ignore[arg-type]
+    AIVEN_DB_RESULT = str(env.str('AIVEN_REDIS_DB_RESULT', default='2'))  # type: ignore[arg-type]
+
+    def _aiven_url(db: str) -> str:
+        scheme = str(AIVEN_SCHEME or 'rediss')  # type: ignore[assignment]
+        host = str(AIVEN_HOST or '')  # type: ignore[assignment]
+        port = str(AIVEN_PORT or '')  # type: ignore[assignment]
+        user = str(AIVEN_USER or 'default')  # type: ignore[assignment]
+        password = str(AIVEN_PASSWORD or '')  # type: ignore[assignment]
+        if not host or not port:
+            return ''
+        auth = f"{user}:{password}" if password else user
+        return f"{scheme}://{auth}@{host}:{port}/{db}"
+
+    _cache_url: str = _aiven_url(str(AIVEN_DB_CACHE))
+    _broker_url: str = _aiven_url(str(AIVEN_DB_BROKER))
+    _result_url: str = _aiven_url(str(AIVEN_DB_RESULT))
+
+    if _cache_url:
+        REDIS_URL = _cache_url  # override base
+        CHANNEL_LAYERS["default"] = {  # type: ignore[assignment]
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [REDIS_URL]},
+        }
+    if _broker_url:
+        CELERY_BROKER_URL = _broker_url  # type: ignore[assignment]
+    if _result_url:
+        CELERY_RESULT_BACKEND = _result_url  # type: ignore[assignment]
+
+    # TLS/SSL options for Celery + django-redis (if used later) – allow disabling cert verify only if explicitly set.
+    REDIS_SSL_CERT = str(env.str('REDIS_SSL_CERT', default=''))  # type: ignore[arg-type]
+    _ssl_kwargs = {"ssl_cert_reqs": "required"}
+    if REDIS_SSL_CERT:
+        _ssl_kwargs["ssl_ca_certs"] = str(REDIS_SSL_CERT)
+    # Celery specific (applied lazily by Celery if present in globals)
+    CELERY_BROKER_USE_SSL = _ssl_kwargs  # type: ignore[assignment]
+    CELERY_REDIS_BACKEND_USE_SSL = _ssl_kwargs  # type: ignore[assignment]
+    # Expose for cache configuration
+    REDIS_CACHE_SSL_KWARGS = _ssl_kwargs  # type: ignore[assignment]
+
+# Django cache configuration (uses django-redis if available)
+_cache_location_fallback = 'redis://127.0.0.1:6379/1'
+CACHE_LOCATION = env.str('CACHE_REDIS_URL', default=REDIS_URL or _cache_location_fallback)  # type: ignore[arg-type]
+if 'django_redis' in INSTALLED_APPS:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": CACHE_LOCATION,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+            },
+            "TIMEOUT": None,  # no global timeout
+        }
+    }
+    # Inject SSL connection kwargs when using managed Redis
+    if USE_AIVEN_REDIS and 'REDIS_CACHE_SSL_KWARGS' in globals():
+        CACHES["default"]["OPTIONS"]["CONNECTION_POOL_KWARGS"] = globals()["REDIS_CACHE_SSL_KWARGS"]  # type: ignore[index]
+
 # WebSocket allowed origins (used by custom Channels auth/rate-limit middleware)
 WS_ALLOWED_ORIGINS = env.list('WS_ALLOWED_ORIGINS', default=['http://localhost:5173', 'http://127.0.0.1:5173'])  # type: ignore[arg-type]
 # Basic runtime limits (connections per IP per minute, messages per user per minute)

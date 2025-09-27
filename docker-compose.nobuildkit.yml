@@ -1,0 +1,35 @@
+version: "3.9"
+
+# Usage (Windows cmd):
+#   set DOCKER_BUILDKIT=0
+#   docker compose -f docker-compose.nobuildkit.yml up --build
+# This uses the simplified fallback Dockerfile.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.fallback
+    image: wedding-dream-backend:fallback
+    environment:
+      - DJANGO_SETTINGS_MODULE=wedding_dream.settings.dev
+      - DEBUG=1
+    ports:
+      - "8000:8000"
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+  worker:
+    image: wedding-dream-backend:fallback
+    environment:
+      - DJANGO_SETTINGS_MODULE=wedding_dream.settings.dev
+    depends_on:
+      - web
+    command: ["celery", "-A", "wedding_dream", "worker", "-l", "info", "--pool=solo"]
+
+  beat:
+    image: wedding-dream-backend:fallback
+    environment:
+      - DJANGO_SETTINGS_MODULE=wedding_dream.settings.dev
+    depends_on:
+      - web
+    command: ["celery", "-A", "wedding_dream", "beat", "-l", "info"]
