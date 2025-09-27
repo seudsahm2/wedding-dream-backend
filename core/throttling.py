@@ -17,6 +17,22 @@ class AuthLoginThrottle(PerIPScopeThrottle):
     scope = "auth_login"
 
 
+class AuthLoginUserThrottle(SimpleRateThrottle):
+    """Throttle login attempts per supplied username/email independent of IP.
+
+    Mitigates rapid brute force across rotating IPs and protects specific accounts.
+    """
+    scope = "auth_login_user"
+
+    def get_cache_key(self, request, view):  # type: ignore[override]
+        if not request.data:
+            return None
+        ident = str(request.data.get('username') or '').strip().lower()
+        if not ident:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class AuthRegisterThrottle(PerIPScopeThrottle):
     scope = "auth_register"
 
@@ -43,3 +59,18 @@ class MessageSendThrottle(PerUserScopeThrottle):
 
 class ThreadStartThrottle(PerUserScopeThrottle):
     scope = "threads_start"
+
+
+class UsernameAvailabilityThrottle(PerIPScopeThrottle):
+    """Throttle rapid anonymous username availability polling to protect DB."""
+    scope = "username_available"
+
+
+class UsernameReminderThrottle(PerIPScopeThrottle):
+    """Throttle username reminder requests by IP to mitigate enumeration & abuse."""
+    scope = "username_reminder"
+
+
+class EmailChangeThrottle(PerUserScopeThrottle):
+    """Throttle email change requests per authenticated user."""
+    scope = "email_change"

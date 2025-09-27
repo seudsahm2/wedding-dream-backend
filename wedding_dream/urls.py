@@ -17,11 +17,14 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
+from users.views import ActivationRedirectView
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Browser activation convenience (GET). Djoser still expects POST to /api/v1/auth/users/activation/ for API usage.
+    path("activate/<uid>/<token>", ActivationRedirectView.as_view(), name="activate"),
     path("api/v1/", include("core.urls")),
     path("api/v1/", include("listings.urls")),
     path("api/v1/", include("reviews.urls")),

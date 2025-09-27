@@ -75,3 +75,38 @@ class SlowRequestLoggingMiddleware:
                 },
             )
         return response
+
+
+class SecurityHeadersMiddleware:
+    """Inject baseline security headers (CSP, Referrer-Policy, X-Frame-Options, etc.).
+
+    CSP kept strict; adjust script-src/style-src if inline or 3rd-party resources are needed.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]):
+        from django.conf import settings
+        self.get_response = get_response
+        # Allow override via settings.CONTENT_SECURITY_POLICY
+        base_csp = getattr(
+            settings,
+            'CONTENT_SECURITY_POLICY_BASE',
+            "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'none'; upgrade-insecure-requests"
+        )
+        report_uri = getattr(settings, 'CSP_REPORT_URI', '')
+        if report_uri:
+            base_csp = f"{base_csp}; report-uri {report_uri}"
+        self.default_csp = getattr(settings, 'CONTENT_SECURITY_POLICY', base_csp)
+        self.referrer_policy = getattr(settings, 'SECURE_REFERRER_POLICY', 'same-origin')
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:  # pragma: no cover - header injection
+        response = self.get_response(request)
+        # Only set if not already present to allow per-view customization
+        if 'Content-Security-Policy' not in response:
+            response['Content-Security-Policy'] = self.default_csp
+        response['Referrer-Policy'] = self.referrer_policy
+        response.setdefault('X-Frame-Options', 'DENY')
+        response.setdefault('X-Content-Type-Options', 'nosniff')
+        response.setdefault('X-XSS-Protection', '0')  # modern browsers ignore / use CSP
+        response.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
+        response.setdefault('Cross-Origin-Resource-Policy', 'same-origin')
+        return response

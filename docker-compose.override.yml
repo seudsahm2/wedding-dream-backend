@@ -1,0 +1,20 @@
+# Development overrides (optional)
+services:
+  web:
+    environment:
+      DEBUG: "1"
+    command: python manage.py runserver 0.0.0.0:8000
+  worker:
+    environment:
+      DEBUG: "1"
+  beat:
+    environment:
+      DEBUG: "1"
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"   # Web UI
+      - "1025:1025"   # SMTP
+    environment:
+      MP_UI_AUTH: ""
+    restart: unless-stopped
