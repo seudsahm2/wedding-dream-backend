@@ -9,6 +9,7 @@ from .views import (
     ImageUploadView,
     ListingAvailabilityCreateView,
     ListingAvailabilityMonthView,
+    SubchoicesUnionView,
 )
 
 urlpatterns = [
@@ -21,4 +22,5 @@ urlpatterns = [
     path('listings/<int:pk>/availability/', ListingAvailabilityCreateView.as_view(), name='listing-availability-create'),
     path('listings/<int:pk>/availability/month/', ListingAvailabilityMonthView.as_view(), name='listing-availability-month'),
     path('media/upload/', ImageUploadView.as_view(), name='image-upload'),
+    path('categories/subchoices-union/', SubchoicesUnionView.as_view(), name='categories-subchoices-union'),
 ]

@@ -5,6 +5,8 @@ from decimal import Decimal
 class Category(models.Model):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=100, unique=True)
+    # Nested options per high-level category (e.g., gender -> roles). Flexible JSON to support future growth.
+    subchoices = models.JSONField(default=dict, blank=True, null=True)
 
     class Meta:
         verbose_name_plural = "Categories"

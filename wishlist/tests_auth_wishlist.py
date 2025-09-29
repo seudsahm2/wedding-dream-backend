@@ -30,6 +30,14 @@ class AuthWishlistTests(TestCase):
         # Register
         res = self.client.post("/api/v1/auth/register", {"username": "bob", "password": "pass12345"}, format="json")
         self.assertIn(res.status_code, (200, 201))
+        # If activation is required by config, mark user active for test continuity
+        try:
+            u = User.objects.get(username="bob")
+            if not u.is_active:
+                u.is_active = True
+                u.save(update_fields=["is_active"])
+        except Exception:
+            pass
 
         # Login
         res = self.client.post("/api/v1/auth/login", {"username": "bob", "password": "pass12345"}, format="json")

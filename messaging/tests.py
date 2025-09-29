@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
-from listings.models import Listing
+from listings.models import Listing, Category
 from .models import MessageThread, Message
 
 
@@ -11,9 +11,10 @@ class MessagingApiTests(APITestCase):
 	def setUp(self):
 		self.user1 = User.objects.create_user(username="u1", password="pass1234")
 		self.user2 = User.objects.create_user(username="u2", password="pass1234")
+		self.category = Category.objects.create(name="Venues", slug="venue")
 		self.listing = Listing.objects.create(
 			title="Test Venue",
-			category="VENUE",
+			category=self.category,
 			type_label="Venue",
 			image="assets/hero-wedding-hall.jpg",
 			rating=4.5,

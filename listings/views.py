@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from django.conf import settings
+from django.db.models import Q
 import uuid
 import os
 from django.core.files.storage import default_storage
@@ -64,6 +65,7 @@ class ListingListView(generics.ListCreateAPIView):
         rating_gte = params.get('ratingGte')
         sort = params.get('sort')
         customization_contains = params.get('customization')  # single customization option token
+        roles = params.get('roles')  # comma-separated flattened tokens, e.g., Gender:Women,Role:Photographer
 
         if cat:
             qs = qs.filter(category__slug=cat)
@@ -89,6 +91,17 @@ class ListingListView(generics.ListCreateAPIView):
         if customization_contains:
             qs = qs.filter(attire_attrs__customizationOptions__icontains=customization_contains)
 
+        # Roles/subchoices filter via provider profile tokens (OR semantics)
+        if roles:
+            tokens = [t.strip() for t in roles.split(',') if t.strip()]
+            if tokens:
+                cond = Q()
+                for tok in tokens:
+                    # JSONB contains list operator: array contains given single-item array
+                    cond |= Q(created_by__profile__provider_subchoice_tokens__contains=[tok])
+                if cond:
+                    qs = qs.filter(cond)
+
         # Sorting
         if sort == 'featured':
             qs = qs.order_by('-featured', '-rating')
@@ -100,6 +113,80 @@ class ListingListView(generics.ListCreateAPIView):
             qs = qs.order_by('-rating')
 
         return qs
+
+    def perform_create(self, serializer):
+        # Attach owner; ensure category maps to Category instance handled by serializer.create
+        if self.request.user and self.request.user.is_authenticated:
+            serializer.save(created_by=self.request.user)
+        else:
+            serializer.save()
+
+class SubchoicesUnionView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        # Accept { categories: ["slug1", "slug2", ...] }; if empty/missing => use all categories
+        body = request.data or {}
+        slugs = []
+        try:
+            maybe = body.get('categories')
+            if isinstance(maybe, (list, tuple)):
+                slugs = [str(s) for s in maybe if str(s).strip()]
+        except Exception:
+            slugs = []
+        if slugs:
+            cats = Category.objects.filter(slug__in=slugs)
+        else:
+            cats = Category.objects.all()
+        union: dict[str, set[str]] = {}
+
+        def ensure_group(name: str) -> set[str]:
+            s = union.get(name)
+            if s is None:
+                s = set()
+                union[name] = s
+            return s
+
+        def add_items(group_label: str, values: list):
+            target = ensure_group(group_label)
+            for v in values:
+                if isinstance(v, str):
+                    val = v.strip()
+                elif isinstance(v, dict):
+                    # Prefer label then slug
+                    val = str(v.get('label') or v.get('slug') or '').strip()
+                else:
+                    val = ''
+                if val:
+                    target.add(val)
+
+        for c in cats:
+            sub = c.subchoices or {}
+            if not isinstance(sub, dict):
+                continue
+            for group_key, group_val in sub.items():
+                # Case A: direct array of strings
+                if isinstance(group_val, (list, tuple)):
+                    g = str(group_key).strip()
+                    if g:
+                        add_items(g, list(group_val))
+                    continue
+                # Case B: nested object with label/options
+                if isinstance(group_val, dict):
+                    g_label = str(group_val.get('label') or group_key).strip()
+                    options = group_val.get('options')
+                    if isinstance(options, (list, tuple)):
+                        add_items(g_label, list(options))
+                    else:
+                        # Fallback: if dict of arrays, flatten
+                        # e.g., { "roles": ["A","B"] }
+                        for _, maybe_list in group_val.items():
+                            if isinstance(maybe_list, (list, tuple)):
+                                add_items(g_label, list(maybe_list))
+                    continue
+        # Convert sets to sorted lists
+        result = {g: sorted(list(vals)) for g, vals in union.items()}
+        return Response(result)
 
 class FeaturedListingListView(generics.ListAPIView):
     queryset = Listing.objects.select_related('category', 'created_by').filter(featured=True, status='published')

@@ -1,16 +1,15 @@
 from rest_framework import permissions, generics, status
 from rest_framework.response import Response
 from django.contrib.auth.models import User
-from .models import UserProfile, ProviderServiceType
+from .models import UserProfile
+from listings.models import Category
 from .constants import ALLOWED_PROVIDER_COUNTRIES, DIAL_CODE_MAP
 from core.throttling import PreferencesUpdateThrottle
 from .serializers import (
 	UserSerializer,
 	UserProfileSerializer,
 	ProviderUpgradeSerializer,
-	ProviderServiceTypeSerializer,
 )
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 from djoser.views import UserViewSet
 from rest_framework.request import Request
@@ -19,6 +18,8 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.utils.html import escape
 from django.http import HttpResponse
+from django.urls import reverse
+from django.db.models import Q
 
 
 class MeView(generics.GenericAPIView):
@@ -49,29 +50,7 @@ class PreferencesView(generics.GenericAPIView):
 		return Response(serializer.data)
 
 
-class ProviderUpgradeView(generics.GenericAPIView):
-	"""Allow an authenticated normal user to become a provider.
-	Idempotent: calling again when already provider just returns current profile.
-	"""
-	permission_classes = [permissions.IsAuthenticated]
-	serializer_class = ProviderUpgradeSerializer
-
-	def post(self, request):
-		profile, _ = UserProfile.objects.get_or_create(user=request.user)
-		update_fields = []
-		if profile.role != UserProfile.ROLE_PROVIDER:
-			profile.role = UserProfile.ROLE_PROVIDER
-			update_fields.append("role")
-		# Allow optional business fields on upgrade
-		for fld in ["business_name", "business_phone", "business_type"]:
-			val = request.data.get(fld)
-			if val is not None:
-				setattr(profile, fld, val)
-				if fld not in update_fields:
-					update_fields.append(fld)
-		if update_fields:
-			profile.save(update_fields=update_fields)
-		return Response(UserSerializer(request.user).data, status=status.HTTP_200_OK)
+## (Removed duplicate loose ProviderUpgradeView; see strict version below)
 
 
 class RegisterProviderView(APIView):
@@ -120,13 +99,10 @@ class RegisterProviderView(APIView):
 		if not city:
 			return Response({"city": ["City is required"]}, status=400)
 		payload['country'] = country
-		# Validate provider service type existence if table migrated
+		# Validate provider business_type against categories only
 		btype = payload.get('business_type')
-		try:
-			if not ProviderServiceType.objects.filter(slug=btype, active=True).exists():
-				return Response({"business_type": ["Invalid provider type"]}, status=400)
-		except Exception:
-			pass
+		if btype and not Category.objects.filter(slug=btype).exists():
+			return Response({"business_type": ["Invalid provider type"]}, status=400)
 		# Validate phone
 		ok, norm_phone_or_msg = validate_phone(payload['business_phone'], country)
 		if not ok:
@@ -139,6 +115,11 @@ class RegisterProviderView(APIView):
 		email = payload.get('email') or ''
 		if not email:
 			return Response({"email": ["Email is required for provider activation"]}, status=400)
+		# Prevent using an email already used by another account or as another provider's business email
+		if User.objects.filter(email__iexact=email).exists():
+			return Response({"email": ["Email already in use"]}, status=400)
+		if UserProfile.objects.filter(business_email__iexact=email).exists():
+			return Response({"email": ["Email already associated with a business profile"]}, status=400)
 		user = User.objects.create_user(username=username, password=payload['password'], email=email)
 		# Force inactive until activation link consumed
 		user.is_active = False
@@ -150,7 +131,36 @@ class RegisterProviderView(APIView):
 		profile.business_type = btype
 		profile.country = country
 		profile.city = city
+		# Record business email separately for provider accounts
+		be = payload.get('email')
+		if be:
+			profile.business_email = be
+			profile.business_email_verified = False
 		profile.save()
+		# Optional: categories (list of slugs) for M2M provider_categories
+		cats = request.data.get('categories')
+		if isinstance(cats, (list, tuple)) and cats:
+			slugs = [str(s) for s in cats if str(s).strip()]
+			if slugs:
+				cat_qs = list(Category.objects.filter(slug__in=slugs))
+				if cat_qs:
+					profile.provider_categories.set(cat_qs)
+		# Optional: provider_subchoices structured values
+		subchoices = request.data.get('provider_subchoices')
+		if isinstance(subchoices, dict):
+			profile.provider_subchoices = subchoices
+			# Flatten tokens
+			tokens = []
+			for group, items in subchoices.items():
+				if not isinstance(items, (list, tuple)):
+					continue
+				g = str(group).strip()
+				for v in items:
+					val = str(v).strip()
+					if g and val:
+						tokens.append(f"{g}:{val}")
+			profile.provider_subchoice_tokens = sorted(set(tokens))
+			profile.save(update_fields=['provider_subchoices', 'provider_subchoice_tokens'])
 		data = UserSerializer(user).data
 		data["role"] = profile.role
 		data["is_provider"] = True
@@ -193,11 +203,8 @@ class ProviderUpgradeView(generics.GenericAPIView):
 		if not city:
 			return Response({"city": ["City is required"]}, status=400)
 		btype = request.data.get('business_type')
-		try:
-			if not ProviderServiceType.objects.filter(slug=btype, active=True).exists():
-				return Response({"business_type": ["Invalid provider type"]}, status=400)
-		except Exception:
-			pass
+		if btype and not Category.objects.filter(slug=btype).exists():
+			return Response({"business_type": ["Invalid provider type"]}, status=400)
 		# Validate phone using same logic as registration
 		def validate_phone(raw: str, country_code: str):
 			import phonenumbers
@@ -221,20 +228,70 @@ class ProviderUpgradeView(generics.GenericAPIView):
 		profile.country = country
 		profile.city = city
 		profile.role = UserProfile.ROLE_PROVIDER
+		# Optional: allow updating business email during upgrade
+		be = request.data.get('business_email')
+		if be:
+			be = str(be).strip().lower()
+			# Enforce uniqueness across User.email and other profiles' business_email
+			email_in_users = User.objects.filter(email__iexact=be).exclude(pk=request.user.pk).exists()
+			email_in_business = UserProfile.objects.filter(business_email__iexact=be).exclude(user=request.user).exists()
+			if email_in_users or email_in_business:
+				return Response({"business_email": ["This email is already in use."]}, status=400)
+			# Assign and require verification
+			if be != (request.user.email or '').lower():
+				profile.business_email = be
+				profile.business_email_verified = False
+				try:
+					from django.utils.http import urlsafe_base64_encode
+					from django.utils.encoding import force_bytes
+					from django.contrib.auth.tokens import default_token_generator
+					uid = urlsafe_base64_encode(force_bytes(request.user.pk))
+					token = default_token_generator.make_token(request.user)
+					verify_url = request.build_absolute_uri(reverse('verify-business-email', args=[uid, token]))
+					send_mail(
+						subject="Verify your business email",
+						message=f"Click to verify your business email: {verify_url}",
+						from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'no-reply@localhost'),
+						recipient_list=[be],
+						fail_silently=True,
+					)
+				except Exception:
+					pass
+			else:
+				# If using same as account email, consider it verified if account is active
+				profile.business_email = be
+				profile.business_email_verified = bool(request.user.is_active)
 		profile.save()
+		# Optionally assign categories to provider_categories
+		cats = request.data.get('categories')
+		if isinstance(cats, (list, tuple)) and cats:
+			slugs = [str(s) for s in cats if str(s).strip()]
+			if slugs:
+				cat_qs = list(Category.objects.filter(slug__in=slugs))
+				if cat_qs:
+					profile.provider_categories.set(cat_qs)
+		# Optional: update provider_subchoices
+		subchoices = request.data.get('provider_subchoices')
+		if isinstance(subchoices, dict):
+			profile.provider_subchoices = subchoices
+			# Flatten tokens
+			tokens = []
+			for group, items in subchoices.items():
+				if not isinstance(items, (list, tuple)):
+					continue
+				g = str(group).strip()
+				for v in items:
+					val = str(v).strip()
+					if g and val:
+						tokens.append(f"{g}:{val}")
+			profile.provider_subchoice_tokens = sorted(set(tokens))
+			profile.save(update_fields=['provider_subchoices', 'provider_subchoice_tokens'])
 		ser = UserSerializer(request.user).data
 		ser['role'] = profile.role
 		ser['is_provider'] = True
 		ser['country'] = profile.country
 		ser['business_phone'] = profile.business_phone
 		return Response(ser, status=200)
-
-
-class ProviderServiceTypeListView(generics.ListAPIView):
-	queryset = ProviderServiceType.objects.filter(active=True)
-	serializer_class = ProviderServiceTypeSerializer
-	permission_classes = []
-	pagination_class = None
 
 
 class ProviderMetaView(APIView):
@@ -246,7 +303,12 @@ class ProviderMetaView(APIView):
 	authentication_classes = []
 
 	def get(self, request):
-		service_types = list(ProviderServiceType.objects.filter(active=True).values("slug", "name"))
+		# Source service types solely from listings.Category
+		service_types_qs = Category.objects.all().order_by('name')
+		service_types = [
+			{"slug": c.slug, "name": c.name, "subchoices": (c.subchoices or {})}
+			for c in service_types_qs
+		]
 		countries = sorted(ALLOWED_PROVIDER_COUNTRIES)
 		# Simple version heuristic: hash of sorted countries + service type slugs count
 		import hashlib, json
@@ -305,6 +367,24 @@ class UsernameAvailabilityView(APIView):
 		if not re.fullmatch(r'[A-Za-z0-9_-]{3,32}', username):
 			return Response({"available": False, "reason": "invalid_format"})
 		exists = User.objects.filter(username__iexact=username).exists()
+		return Response({"available": not exists})
+
+
+class EmailAvailabilityView(APIView):
+	permission_classes = []
+	authentication_classes = []
+
+	def get(self, request):
+		email = request.query_params.get('email','').strip().lower()
+		if not email or '@' not in email:
+			return Response({"available": False, "reason": "invalid_format"})
+		# Exclude current user from check if authenticated and matches their own account email or business email
+		q_user = User.objects.filter(email__iexact=email)
+		q_biz = UserProfile.objects.filter(business_email__iexact=email)
+		if request.user and request.user.is_authenticated:
+			q_user = q_user.exclude(pk=request.user.pk)
+			q_biz = q_biz.exclude(user=request.user)
+		exists = q_user.exists() or q_biz.exists()
 		return Response({"available": not exists})
 
 
@@ -379,6 +459,35 @@ class ActivationRedirectView(APIView):
 		if changed:
 			# Persist activation status
 			user.save(update_fields=['is_active'])
+			# If business_email equals account email, verify it too
+			prof = getattr(user, 'profile', None)
+			if prof and prof.business_email and user.email and prof.business_email.lower() == user.email.lower():
+				if not prof.business_email_verified:
+					prof.business_email_verified = True
+					prof.save(update_fields=['business_email_verified'])
 		return HttpResponse("<h1>Account Activated</h1><p>You can now log in.</p>", status=200)
+
+
+class BusinessEmailVerifyView(APIView):
+	permission_classes = []
+	authentication_classes = []
+
+	def get(self, request, uid: str, token: str):  # type: ignore[override]
+		from django.contrib.auth.tokens import default_token_generator
+		from django.utils.encoding import force_str
+		from django.utils.http import urlsafe_base64_decode
+		try:
+			uid_int = force_str(urlsafe_base64_decode(uid))
+			user = User.objects.get(pk=uid_int)
+		except Exception:
+			return HttpResponse("<h1>Invalid Link</h1>", status=400)
+		if not default_token_generator.check_token(user, token):
+			return HttpResponse("<h1>Invalid or Expired Token</h1>", status=400)
+		profile, _ = UserProfile.objects.get_or_create(user=user)
+		if profile.business_email:
+			profile.business_email_verified = True
+			profile.save(update_fields=['business_email_verified'])
+			return HttpResponse("<h1>Business Email Verified</h1>", status=200)
+		return HttpResponse("<h1>No Business Email to Verify</h1>", status=200)
 
 

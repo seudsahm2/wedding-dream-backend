@@ -1,7 +1,7 @@
 import json
 from django.core.management.base import BaseCommand
 from users.constants import ALLOWED_PROVIDER_COUNTRIES, DIAL_CODE_MAP
-from users.models import ProviderServiceType
+from listings.models import Category
 
 class Command(BaseCommand):
     help = "Export provider meta (allowed countries, dial codes, active service types) as JSON."
@@ -11,7 +11,8 @@ class Command(BaseCommand):
         parser.add_argument('--indent', type=int, default=2, help='JSON indentation (default 2)')
 
     def handle(self, *args, **options):
-        service_types = list(ProviderServiceType.objects.filter(active=True).values('slug', 'name'))
+        # Use listings.Category as provider types
+        service_types = list(Category.objects.all().order_by('name').values('slug', 'name'))
         data = {
             'countries': sorted(ALLOWED_PROVIDER_COUNTRIES),
             'dial_codes': {c: DIAL_CODE_MAP[c] for c in ALLOWED_PROVIDER_COUNTRIES if c in DIAL_CODE_MAP},

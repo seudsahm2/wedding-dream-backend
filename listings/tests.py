@@ -13,9 +13,13 @@ class ListingOwnershipTests(TestCase):
 	def setUp(self):
 		self.client = APIClient()
 		self.provider_user = User.objects.create_user(username='prov', password='pass123')
-		UserProfile.objects.create(user=self.provider_user, role=UserProfile.ROLE_PROVIDER)
+		prof, _ = UserProfile.objects.get_or_create(user=self.provider_user)
+		prof.role = UserProfile.ROLE_PROVIDER
+		prof.save(update_fields=['role'])
 		self.normal_user = User.objects.create_user(username='norm', password='pass123')
-		UserProfile.objects.create(user=self.normal_user, role=UserProfile.ROLE_NORMAL)
+		prof2, _ = UserProfile.objects.get_or_create(user=self.normal_user)
+		prof2.role = UserProfile.ROLE_NORMAL
+		prof2.save(update_fields=['role'])
 		self.category = Category.objects.create(name='Venues', slug='venue')
 
 	def auth(self, user):

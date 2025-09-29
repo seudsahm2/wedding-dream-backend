@@ -56,8 +56,30 @@ class ListingSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         # Enforce attire-bridal attribute schema basics according to roadmap
+        # Resolve category object if provided as slug (create() handles replacement later but we need slug now)
         category_obj = attrs.get('category') if isinstance(attrs.get('category'), Category) else None
+        if category_obj is None:
+            raw = attrs.get('category')
+            slug = None
+            if isinstance(raw, dict):
+                slug = raw.get('slug')
+            elif isinstance(raw, str):
+                slug = raw
+            if slug:
+                try:
+                    category_obj = Category.objects.filter(slug=slug).first()
+                except Exception:
+                    category_obj = None
         attire_attrs = attrs.get('attire_attrs') or {}
+        # Minimal defensive checks for attire vertical (common to all attire slugs)
+        if category_obj and str(category_obj.slug).startswith('attire'):
+            # roles: array of strings like "Group:Value"
+            roles = attire_attrs.get('roles')
+            if roles is not None and not (isinstance(roles, list) and all(isinstance(x, str) for x in roles)):
+                raise serializers.ValidationError({'attire_attrs': 'roles must be an array of strings'})
+            acc_type = attire_attrs.get('accessoryType')
+            if acc_type is not None and not isinstance(acc_type, str):
+                raise serializers.ValidationError({'attire_attrs': 'accessoryType must be a string'})
         if category_obj and category_obj.slug == 'attire-bridal':
             allowed_keys = { 'sizeRange', 'fabricTypes', 'customizationOptions', 'rental', 'images', 'deliveryAvailable' }
             extra = set(attire_attrs.keys()) - allowed_keys

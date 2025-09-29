@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth.models import User
-from .models import ProviderServiceType
+from listings.models import Category
 import json
 
 
@@ -51,8 +51,8 @@ class ProviderRegistrationPhoneTests(TestCase):
 	def setUp(self):
 		# Unified provider registration endpoint (previously register-provider-v2)
 		self.url = reverse('register-provider')
-		# Minimal provider service type required for validation to pass
-		ProviderServiceType.objects.create(slug='photography', name='Photography')
+		# Minimal category required for validation to pass
+		Category.objects.update_or_create(slug='photography', defaults={'name': 'Photography'})
 
 	def _base_payload(self):
 		return {

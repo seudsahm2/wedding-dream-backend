@@ -1,12 +1,12 @@
 from django.test import TestCase
 from django.urls import reverse
 from users.constants import ALLOWED_PROVIDER_COUNTRIES, DIAL_CODE_MAP
-from users.models import ProviderServiceType
+from listings.models import Category
 
 class ProviderMetaEndpointTests(TestCase):
     def setUp(self):
-        ProviderServiceType.objects.create(slug='photo', name='Photography')
-        ProviderServiceType.objects.create(slug='venue', name='Venue')
+        Category.objects.update_or_create(slug='photo', defaults={'name': 'Photography'})
+        Category.objects.update_or_create(slug='venue', defaults={'name': 'Venue'})
         self.url = reverse('provider-meta')
 
     def test_provider_meta_structure(self):
@@ -21,7 +21,7 @@ class ProviderMetaEndpointTests(TestCase):
         # Dial codes subset check
         for k, v in data['dial_codes'].items():
             self.assertEqual(DIAL_CODE_MAP.get(k), v)
-        # At least one service type present
+        # At least two service types present
         self.assertGreaterEqual(len(data['service_types']), 2)
 
 class DialCodeSyncTests(TestCase):
