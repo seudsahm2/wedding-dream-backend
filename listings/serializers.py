@@ -72,7 +72,7 @@ class ListingSerializer(serializers.ModelSerializer):
                     category_obj = None
         attire_attrs = attrs.get('attire_attrs') or {}
         # Minimal defensive checks for attire vertical (common to all attire slugs)
-        if category_obj and str(category_obj.slug).startswith('attire'):
+        if category_obj and str(category_obj.slug) == 'attire':
             # roles: array of strings like "Group:Value"
             roles = attire_attrs.get('roles')
             if roles is not None and not (isinstance(roles, list) and all(isinstance(x, str) for x in roles)):
@@ -80,6 +80,16 @@ class ListingSerializer(serializers.ModelSerializer):
             acc_type = attire_attrs.get('accessoryType')
             if acc_type is not None and not isinstance(acc_type, str):
                 raise serializers.ValidationError({'attire_attrs': 'accessoryType must be a string'})
+        # Accessory-specific validation when using dedicated accessories category
+        accessory_attrs = attrs.get('accessory_attrs') or {}
+        if category_obj and str(category_obj.slug) == 'accessories':
+            # accessoryType required
+            a_type = accessory_attrs.get('accessoryType')
+            if not a_type or not isinstance(a_type, str):
+                raise serializers.ValidationError({'accessory_attrs': 'accessoryType required (string)'})
+            imgs = accessory_attrs.get('images')
+            if imgs is not None and (not isinstance(imgs, list) or not all(isinstance(x, str) for x in imgs)):
+                raise serializers.ValidationError({'accessory_attrs': 'images must be an array of strings when provided'})
         if category_obj and category_obj.slug == 'attire-bridal':
             allowed_keys = { 'sizeRange', 'fabricTypes', 'customizationOptions', 'rental', 'images', 'deliveryAvailable' }
             extra = set(attire_attrs.keys()) - allowed_keys
@@ -141,9 +151,11 @@ class ListingSerializer(serializers.ModelSerializer):
             except Category.DoesNotExist:
                 # Fallback: auto-create for known registry-driven slugs to keep FE/BE in sync
                 REGISTRY_SLUG_MAP = {
-                    'attire-bridal': 'Bridal Attire',
-                    'attire-groom': 'Groom Attire',
-                    'attire-party': 'Wedding Party Attire',
+                    'attire': 'Attire',  # Clothing only
+                    'accessories': 'Accessories',
+                    'accessories-jewelry': 'Accessories — Jewelry & Veils',
+                    'accessories-footwear': 'Accessories — Footwear',
+                    'accessories-cultural': 'Accessories — Cultural',
                     'venue-hall': 'Venue Hall',
                     'venue-outdoor': 'Outdoor Venue',
                     'other-coming-soon': 'Other (Coming Soon)',

@@ -5,6 +5,7 @@ from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Category, Listing, ListingAvailability
+from django.db import models
 from .serializers import CategorySerializer, ListingSerializer, ListingAvailabilitySerializer
 from core.permissions import IsProviderOwnerOrReadOnly
 from django.utils import timezone

@@ -20,16 +20,32 @@ class ListingOwnershipTests(TestCase):
 		prof2, _ = UserProfile.objects.get_or_create(user=self.normal_user)
 		prof2.role = UserProfile.ROLE_NORMAL
 		prof2.save(update_fields=['role'])
-		self.category = Category.objects.create(name='Venues', slug='venue')
+		# Ensure categories needed by tests exist
+		Category.objects.get_or_create(slug='attire', defaults={'name': 'Attire'})
+		Category.objects.get_or_create(slug='accessories', defaults={'name': 'Accessories'})
 
 	def auth(self, user):
-		self.client.force_authenticate(user=user)
+		# Obtain a real JWT using Djoser and attach Authorization header
+		resp = self.client.post('/api/v1/auth/login', {
+			'username': user.username,
+			'password': 'pass123',
+		}, format='json')
+		self.assertEqual(resp.status_code, 200, resp.content)
+		token = resp.json().get('access')
+		self.assertTrue(token)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+		# JWT header is sufficient for authentication in tests
+		return
 
 	def test_provider_creates_draft_listing(self):
 		self.auth(self.provider_user)
+		# Sanity: ensure API recognizes this user as provider
+		me = self.client.get('/api/v1/me')
+		self.assertEqual(me.status_code, 200, me.content)
+		self.assertTrue(me.json().get('is_provider'))
 		resp = self.client.post(reverse('listing-list'), {
-			'title': 'Test Venue',
-			'category': 'venue',
+			'title': 'Test Attire',
+			'category': 'attire',
 			'image': 'http://example.com/x.jpg',
 			'location': 'City',
 			'price_min': '1000.00',
@@ -41,20 +57,23 @@ class ListingOwnershipTests(TestCase):
 		self.assertIsNotNone(data['created_by'])
 
 	def test_draft_not_visible_public(self):
-		listing = Listing.objects.create(title='Hidden', category=self.category, image='x', location='Y', price_min=0, created_by=self.provider_user)
+		cat,_ = Category.objects.get_or_create(slug='attire', defaults={'name':'Attire'})
+		listing = Listing.objects.create(title='Hidden', category=cat, image='x', location='Y', price_min=0, created_by=self.provider_user)
 		resp = self.client.get(reverse('listing-list'))
 		self.assertEqual(resp.status_code, 200)
 		# Should be empty because draft
 		self.assertEqual(len(resp.json().get('results', []) or resp.json() if isinstance(resp.json(), list) else []), 0)
 
 	def test_owner_can_view_draft_detail(self):
-		listing = Listing.objects.create(title='Hidden', category=self.category, image='x', location='Y', price_min=0, created_by=self.provider_user)
+		cat,_ = Category.objects.get_or_create(slug='attire', defaults={'name':'Attire'})
+		listing = Listing.objects.create(title='Hidden', category=cat, image='x', location='Y', price_min=0, created_by=self.provider_user)
 		self.auth(self.provider_user)
 		resp = self.client.get(reverse('listing-detail', args=[listing.id]))
 		self.assertEqual(resp.status_code, 200)
 
 	def test_non_owner_cannot_view_draft_detail(self):
-		listing = Listing.objects.create(title='Hidden', category=self.category, image='x', location='Y', price_min=0, created_by=self.provider_user)
+		cat,_ = Category.objects.get_or_create(slug='attire', defaults={'name':'Attire'})
+		listing = Listing.objects.create(title='Hidden', category=cat, image='x', location='Y', price_min=0, created_by=self.provider_user)
 		self.auth(self.normal_user)
 		resp = self.client.get(reverse('listing-detail', args=[listing.id]))
 		self.assertEqual(resp.status_code, 404)
@@ -63,7 +82,7 @@ class ListingOwnershipTests(TestCase):
 		self.auth(self.provider_user)
 		resp = self.client.post(reverse('listing-list'), {
 			'title': 'To Publish',
-			'category': 'venue',
+			'category': 'attire',
 			'image': 'http://example.com/x.jpg',
 			'location': 'City',
 			'price_min': '500.00',
@@ -74,10 +93,52 @@ class ListingOwnershipTests(TestCase):
 		self.assertEqual(pub_resp.status_code, 200, pub_resp.content)
 		self.assertEqual(pub_resp.json()['status'], 'published')
 		# Now visible publicly
-		self.client.force_authenticate(user=None)
+		self.client.credentials()  # clear auth
 		list_resp = self.client.get(reverse('listing-list'))
 		results = list_resp.json().get('results', []) if isinstance(list_resp.json(), dict) else list_resp.json()
 		self.assertTrue(any(r['id'] == listing_id for r in results))
+
+	def test_create_accessory_listing(self):
+		"""Ensure accessories slug with accessory_attrs is accepted and stored."""
+		self.auth(self.provider_user)
+		resp = self.client.post(reverse('listing-list'), {
+			'title': 'Gold Necklace',
+			'category': 'accessories',
+			'image': 'uploads/img1.jpg',
+			'location': 'Addis',
+			'price_min': '250.00',
+			'accessory_attrs': {
+				'accessoryType': 'Jewelry & Veils',
+				'material': 'Gold',
+				'karat': '18k',
+				'images': ['uploads/img1.jpg']
+			}
+		}, format='json')
+		self.assertEqual(resp.status_code, 201, resp.content)
+		data = resp.json()
+		self.assertEqual(data['category'], 'accessories')
+		self.assertIn('accessory_attrs', data)
+		self.assertEqual(data['accessory_attrs']['accessoryType'], 'Jewelry & Veils')
+		# Publish
+		listing_id = data['id']
+		pub_resp = self.client.patch(reverse('listing-publish', args=[listing_id]), {})
+		self.assertEqual(pub_resp.status_code, 200)
+		self.assertEqual(pub_resp.json()['status'], 'published')
+
+	def test_accessory_requires_type(self):
+		self.auth(self.provider_user)
+		resp = self.client.post(reverse('listing-list'), {
+			'title': 'Invalid Accessory',
+			'category': 'accessories',
+			'image': 'uploads/x.jpg',
+			'location': 'Addis',
+			'price_min': '100.00',
+			'accessory_attrs': {
+				# missing accessoryType on purpose
+				'material': 'Gold'
+			}
+		}, format='json')
+		self.assertEqual(resp.status_code, 400, resp.content)
 
 
 class ListingAvailabilityTests(TestCase):
@@ -85,12 +146,21 @@ class ListingAvailabilityTests(TestCase):
 		from users.models import UserProfile
 		self.client = APIClient()
 		self.provider = User.objects.create_user(username='prov2', password='pass123')
-		UserProfile.objects.create(user=self.provider, role=UserProfile.ROLE_PROVIDER)
+		prof, _ = UserProfile.objects.get_or_create(user=self.provider)
+		prof.role = UserProfile.ROLE_PROVIDER
+		prof.save(update_fields=['role'])
 		self.category = Category.objects.create(name='Venue Hall', slug='venue-hall')
 		self.listing = Listing.objects.create(title='Hall A', category=self.category, image='x', location='City', price_min=1000, created_by=self.provider, status='published')
 
 	def auth(self, user):
-		self.client.force_authenticate(user=user)
+		resp = self.client.post('/api/v1/auth/login', {
+			'username': user.username,
+			'password': 'pass123',
+		}, format='json')
+		self.assertEqual(resp.status_code, 200, resp.content)
+		access = resp.json().get('access')
+		self.assertTrue(access)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
 
 	def test_create_booking_and_month_view(self):
 		self.auth(self.provider)

@@ -11,7 +11,7 @@ class MessagingApiTests(APITestCase):
 	def setUp(self):
 		self.user1 = User.objects.create_user(username="u1", password="pass1234")
 		self.user2 = User.objects.create_user(username="u2", password="pass1234")
-		self.category = Category.objects.create(name="Venues", slug="venue")
+		self.category, _ = Category.objects.get_or_create(slug="venue", defaults={"name": "Venues"})
 		self.listing = Listing.objects.create(
 			title="Test Venue",
 			category=self.category,
